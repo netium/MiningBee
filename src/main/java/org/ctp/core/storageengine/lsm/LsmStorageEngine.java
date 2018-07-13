@@ -5,8 +5,14 @@ import org.ctp.core.storageengine.IStorageEngine;
 import java.io.IOException;
 
 public class LsmStorageEngine implements IStorageEngine {
+
+
+    public LsmStorageEngine() {
+
+    }
+
     @Override
-    public void initEngine() {
+    public void initEngine(String dbFileFolder) {
 
     }
 
