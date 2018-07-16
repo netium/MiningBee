@@ -1,7 +1,5 @@
 package org.ctp.core.storageengine.lsm;
 
-import javafx.util.Pair;
-
 import java.util.*;
 
 public class Memtable implements Iterable<Pair<String, String>>  {
