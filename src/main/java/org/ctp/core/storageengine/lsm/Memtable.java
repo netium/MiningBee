@@ -22,6 +22,14 @@ public class Memtable implements Iterable<Pair<String, String>>  {
         version++;
     }
 
+    public String get(String key) {
+        return map.get(key);
+    }
+
+    public boolean containsKey(String key) {
+        return map.containsKey(key);
+    }
+
     public String read(String key) {
         return map.get(key);
     }
