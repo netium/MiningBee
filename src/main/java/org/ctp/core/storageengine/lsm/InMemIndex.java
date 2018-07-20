@@ -13,8 +13,8 @@ public class InMemIndex {
         this.build();
     }
 
-    public String getSSTableFilename() {
-        return sstable.getFilename();
+    public SSTable getSSTable() {
+        return sstable;
     }
 
     public String get(String key) {

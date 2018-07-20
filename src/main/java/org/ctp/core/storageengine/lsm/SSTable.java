@@ -24,6 +24,15 @@ public class SSTable implements Iterable<Pair<String, Long>> {
         return newSSTable;
     }
 
+    public static SSTable.SSTableWriter openForWriteItem(String sstableFilename) throws IOException {
+        SSTable newSSTable = new SSTable(sstableFilename);
+        return newSSTable.new SSTableWriter();
+    }
+
+    public SSTable.SSTableSequenceReader getSequenceReader() throws IOException {
+        return new SSTableSequenceReader();
+    }
+
     public Pair<String, String> readItem(long offset) throws IOException {
         try (RandomAccessFile file = new RandomAccessFile(filename, "r")) {
             file.seek(offset);
@@ -196,6 +205,67 @@ public class SSTable implements Iterable<Pair<String, Long>> {
             }
 
             return new Pair<>(key, offset);
+        }
+    }
+
+    public class SSTableWriter implements Closeable {
+        DataOutputStream outputStream;
+
+        private SSTableWriter() throws IOException {
+            outputStream = new DataOutputStream(new FileOutputStream(filename));
+            setHeader(outputStream);
+        }
+
+        public void append(String key, String value) throws IOException {
+            appendItem(outputStream, key, value);
+        }
+
+        @Override
+        public void close() throws IOException {
+            outputStream.close();
+        }
+    }
+
+    public class SSTableSequenceReader implements Closeable {
+        RandomAccessFile file;
+
+        private SSTableSequenceReader() throws IOException {
+            file = new RandomAccessFile(filename, "r");
+            file.skipBytes(HEADER.length);
+        }
+
+        public boolean isEof() throws IOException {
+            return file.getFilePointer() == file.length();
+        }
+
+        public String peekNextKey() throws IOException {
+            long currentOffset = file.getFilePointer();
+            try {
+                byte keyBytesLength = file.readByte();
+                byte[] keyBytes = new byte[keyBytesLength];
+                file.read(keyBytes);
+                file.seek(currentOffset);
+                return new String(keyBytes);
+            } catch (Exception e){
+                file.seek(currentOffset);
+                throw e;
+            }
+        }
+
+        public Pair<String, String> read() throws IOException {
+            return readItem(file);
+        }
+
+        public void skipItem() throws IOException {
+            byte keyBytesLength = file.readByte();
+            file.skipBytes(keyBytesLength);
+            int valueBytesLength = file.readInt();
+            file.skipBytes(valueBytesLength);
+        }
+
+        @Override
+        public void close() throws IOException {
+            file.close();
         }
     }
 }

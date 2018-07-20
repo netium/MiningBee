@@ -9,6 +9,7 @@ import java.lang.reflect.Array;
 import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Iterator;
 
 public class LsmStorageEngine implements IStorageEngine {
     private final int MEMTABLE_THRESHOLD = 1 * 1024;
@@ -123,7 +124,7 @@ public class LsmStorageEngine implements IStorageEngine {
         sb.append("Database file folder: " + dbFileFolder + "\n");
         sb.append("In memory index tables: " + "\n");
         for (InMemIndex inMemIndex : segmentInMemIndexList) {
-            sb.append("\t SSTable: " + inMemIndex.getSSTableFilename() + "\n");
+            sb.append("\t SSTable: " + inMemIndex.getSSTable().getFilename() + "\n");
         }
 
         return sb.toString();
@@ -173,7 +174,80 @@ public class LsmStorageEngine implements IStorageEngine {
     }
 
     private void compactAndMerge() {
+        Path dbPath = generateSSTablePath();
+        try (SSTable.SSTableWriter ssTableWriter = SSTable.openForWriteItem(dbPath.toString())) {
+            ArrayList<SSTable.SSTableSequenceReader> readers = new ArrayList<>();
+            for (InMemIndex inMemIndex : segmentInMemIndexList) {
+                readers.add(inMemIndex.getSSTable().getSequenceReader());
+            }
+            mergeSSTables(readers, ssTableWriter);
+        }
+        catch (Exception e) {
+            System.out.println(e);
+            e.printStackTrace();
+        }
 
+        SSTable ssTable = new SSTable(dbPath.toString());
+        InMemIndex memIndex = new InMemIndex(ssTable);
+
+        ArrayList<InMemIndex> oldIndexList = new ArrayList<>(segmentInMemIndexList);
+        removeSSTables(oldIndexList);
+
+        segmentInMemIndexList.clear();
+        segmentInMemIndexList.add(memIndex);
+    }
+
+    private void removeSSTables(ArrayList<InMemIndex> oldIndexList) {
+        for (InMemIndex index : oldIndexList) {
+            File file = new File(index.getSSTable().getFilename());
+            file.delete();
+        }
+    }
+
+    private void mergeSSTables(ArrayList<SSTable.SSTableSequenceReader> readers, SSTable.SSTableWriter ssTableWriter) throws IOException {
+        for (int i = readers.size() - 1; i >= 0; i--) {
+            if (readers.get(i).isEof())
+                readers.remove(i);
+        }
+
+        while (readers.size() != 0) {
+            String minKey = readers.get(0).peekNextKey();
+
+            for (int i = 1; i < readers.size(); i++) {
+                if (readers.get(i).peekNextKey().compareTo(minKey) < 0)
+                    minKey = readers.get(i).peekNextKey();
+            }
+            System.out.println("minKey: " + minKey);
+
+            boolean minKeyWritten = false;
+            for (int i = 0; i < readers.size(); i++) {
+                if (readers.get(i).peekNextKey().compareTo(minKey) == 0) {
+                    if (!minKeyWritten) {
+                        Pair<String, String> pair = readers.get(i).read();
+                        ssTableWriter.append(pair.getKey(), pair.getValue());
+                        minKeyWritten = true;
+                        System.out.println(String.format("Write <%s, %s>", pair.getKey(), pair.getValue()));
+                    }
+                    else {
+                        readers.get(i).skipItem();
+                    }
+                }
+            }
+
+            for (int i = readers.size() - 1; i >= 0; i--) {
+                if (readers.get(i).isEof())
+                    readers.remove(i);
+            }
+        }
+    }
+
+    private SSTable.SSTableSequenceReader getSSTableSequenceReader(SSTable ssTable) {
+        try {
+            return ssTable.getSequenceReader();
+        }
+        catch (Exception e) {
+            return null;
+        }
     }
 
     private void buildSegmentInMemIndexList(File folder) {
