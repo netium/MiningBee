@@ -74,6 +74,7 @@ public class App
                 break;
             case "engine":
                 System.out.println(storageEngine.getDiagnosisInfo());
+                break;
             default:
                 System.out.println("Invalid command");
                 break;
