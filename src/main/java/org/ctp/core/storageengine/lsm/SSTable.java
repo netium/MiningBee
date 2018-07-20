@@ -68,7 +68,7 @@ public class SSTable implements Iterable<Pair<String, Long>> {
 
         outputStream.writeByte(keyBytes.length);
         outputStream.write(keyBytes);
-        outputStream.write(valueBytes.length);
+        outputStream.writeInt(valueBytes.length);
         if (valueBytes.length > 0) {
             outputStream.write(valueBytes);
         }
@@ -141,7 +141,7 @@ public class SSTable implements Iterable<Pair<String, Long>> {
         public SSTableIterator() throws IOException {
             inputStream = new DataInputStream(new FileInputStream(filename));
             verifyIntegrity(inputStream);
-            currentOffset = 0;
+            currentOffset = getHeaderSize();
         }
 
         @Override
@@ -153,7 +153,6 @@ public class SSTable implements Iterable<Pair<String, Long>> {
             } catch (IOException e) {
                 return false;
             }
-            currentOffset += getHeaderSize();
             return true;
         }
 

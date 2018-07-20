@@ -14,7 +14,7 @@ public class Memtable implements Iterable<Pair<String, String>>  {
     public void put(String key, String value) {
         if (key == null || key.length() == 0)
             throw new IllegalArgumentException();
-        if (value != null || value.length() == 0)
+        if (value == null && value.length() == 0)
             throw new IllegalArgumentException();
 
         map.put(key, value);
@@ -24,6 +24,15 @@ public class Memtable implements Iterable<Pair<String, String>>  {
 
     public String get(String key) {
         return map.get(key);
+    }
+
+    public void delete(String key) {
+        if (key == null || key.length() == 0)
+            throw new IllegalArgumentException();
+
+        map.put(key, null);
+        rawSize += (key.getBytes().length);
+        version++;
     }
 
     public boolean containsKey(String key) {
