@@ -60,6 +60,10 @@ public class App
                 if (ret) System.out.println("Succeeded");
                 else System.out.println("Failed");
                 break;
+            case "cas":
+                ret = storageEngine.compareAndSet(tokens[1], tokens[2], tokens[3]);
+                if (ret) System.out.println("Succeeded");
+                else System.out.println("Failed");
             case "flush":
                 if (storageEngine instanceof LsmStorageEngine) {
                     LsmStorageEngine lsmEngine = (LsmStorageEngine)storageEngine;
