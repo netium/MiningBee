@@ -19,6 +19,11 @@ public class App
 
     private void showBanner() {
         System.out.println("Welcome to DistKV");
+        showEngineDiagnosisInfo();
+    }
+
+    private void showEngineDiagnosisInfo() {
+        System.out.println(storageEngine.getDiagnosisInfo());
     }
 
     private void init(String dbPath) {
@@ -43,7 +48,7 @@ public class App
                 break;
             case "put":
                 ret = storageEngine.put(tokens[1], tokens[2]);
-                if (ret) System.out.println("Successed");
+                if (ret) System.out.println("Succeeded");
                 else System.out.println("Failed");
                 break;
             case "get":
@@ -52,17 +57,19 @@ public class App
                 break;
             case "delete":
                 ret = storageEngine.delete(tokens[1]);
-                if (ret) System.out.println("Successed");
+                if (ret) System.out.println("Succeeded");
                 else System.out.println("Failed");
                 break;
             case "flush":
                 if (storageEngine instanceof LsmStorageEngine) {
                     LsmStorageEngine lsmEngine = (LsmStorageEngine)storageEngine;
                     ret = lsmEngine.flush();
-                    if (ret) System.out.println("Successed");
+                    if (ret) System.out.println("Succeeded");
                     else System.out.println("Failed");
                 }
                 break;
+            case "engine":
+                System.out.println(storageEngine.getDiagnosisInfo());
             default:
                 System.out.println("Invalid command");
                 break;

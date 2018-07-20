@@ -13,6 +13,10 @@ public class InMemIndex {
         this.build();
     }
 
+    public String getSSTableFilename() {
+        return sstable.getFilename();
+    }
+
     public String get(String key) {
         Long offset = map.get(key);
         if (offset == null)

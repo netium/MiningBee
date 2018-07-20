@@ -8,4 +8,5 @@ public interface IStorageEngine extends Closeable {
     String read(String key);
     boolean delete(String key);
     boolean compareAndSet(String key, String oldValue, String newValue);
+    String getDiagnosisInfo();
 }

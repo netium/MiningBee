@@ -9,8 +9,6 @@ import java.lang.reflect.Array;
 import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Comparator;
-import java.util.List;
 
 public class LsmStorageEngine implements IStorageEngine {
     private final int MEMTABLE_THRESHOLD = 1 * 1024;
@@ -119,6 +117,19 @@ public class LsmStorageEngine implements IStorageEngine {
     }
 
     @Override
+    public String getDiagnosisInfo() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Engine class: " + getClass().getName() + "\n");
+        sb.append("Database file folder: " + dbFileFolder + "\n");
+        sb.append("In memory index tables: " + "\n");
+        for (InMemIndex inMemIndex : segmentInMemIndexList) {
+            sb.append("\t SSTable: " + inMemIndex.getSSTableFilename() + "\n");
+        }
+
+        return sb.toString();
+    }
+
+    @Override
     public void close() throws IOException {
         createSSTable();
     }
@@ -183,9 +194,13 @@ public class LsmStorageEngine implements IStorageEngine {
         Arrays.sort(dbFiles, (File file1, File file2) -> {
                 String filename1 = file1.getName();
                 String filename2 = file2.getName();
-                int integerName1 = Integer.parseInt(filename1.substring(0, filename1.indexOf('.')));
-                int integerName2 = Integer.parseInt(filename2.substring(0, filename2.indexOf('.')));
-                return integerName1 - integerName2;
+                long integerName1 = Long.parseLong(filename1.substring(0, filename1.indexOf('.')));
+                long integerName2 = Long.parseLong(filename2.substring(0, filename2.indexOf('.')));
+                if (integerName1 < integerName2)
+                    return 1;
+                else if (integerName1 == integerName2)
+                    return 0;
+                return -1;
         });
 
         return dbFiles;

@@ -10,6 +10,9 @@ public class SSTable implements Iterable<Pair<String, Long>> {
 
     private final String filename;
 
+    public String getFilename() {
+        return filename;
+    }
 
     public SSTable(String sstableFilename) {
         filename = sstableFilename;
@@ -61,7 +64,7 @@ public class SSTable implements Iterable<Pair<String, Long>> {
             throw new IllegalArgumentException("The key exceed the length");
         }
 
-        byte[] valueBytes = value.getBytes(Charset.defaultCharset());
+        byte[] valueBytes = value == null ? new byte[0] : value.getBytes(Charset.defaultCharset());
         if (valueBytes.length > Integer.MAX_VALUE) {
             throw new IllegalArgumentException("The value exceed the length");
         }
