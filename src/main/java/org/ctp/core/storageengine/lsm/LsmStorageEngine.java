@@ -5,11 +5,9 @@ import org.ctp.core.storageengine.IStorageEngine;
 import java.io.File;
 import java.io.FileFilter;
 import java.io.IOException;
-import java.lang.reflect.Array;
 import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Iterator;
 
 public class LsmStorageEngine implements IStorageEngine {
     private final int MEMTABLE_THRESHOLD = 1 * 1024;
@@ -49,7 +47,7 @@ public class LsmStorageEngine implements IStorageEngine {
             }
 
             currentMemtable.put(key, value);
-            if (currentMemtable.getRawSize() >= MEMTABLE_THRESHOLD) {
+            if (currentMemtable.getRawDataSize() >= MEMTABLE_THRESHOLD) {
                 createSSTable();
             }
 
@@ -89,7 +87,7 @@ public class LsmStorageEngine implements IStorageEngine {
     public boolean delete(String key) {
         try {
             currentMemtable.delete(key);
-            if (currentMemtable.getRawSize() >= MEMTABLE_THRESHOLD) {
+            if (currentMemtable.getRawDataSize() >= MEMTABLE_THRESHOLD) {
                 createSSTable();
             }
             return true;
@@ -148,6 +146,9 @@ public class LsmStorageEngine implements IStorageEngine {
     }
 
     private void createSSTable() {
+        if (currentMemtable.size() == 0)
+            return;
+
         this.flushingMemtable = this.currentMemtable;
         this.currentMemtable = new Memtable();
 
@@ -224,7 +225,9 @@ public class LsmStorageEngine implements IStorageEngine {
                 if (readers.get(i).peekNextKey().compareTo(minKey) == 0) {
                     if (!minKeyWritten) {
                         Pair<String, String> pair = readers.get(i).read();
-                        ssTableWriter.append(pair.getKey(), pair.getValue());
+                        if (pair.getValue() != null) {
+                            ssTableWriter.append(pair.getKey(), pair.getValue());
+                        }
                         minKeyWritten = true;
                         System.out.println(String.format("Write <%s, %s>", pair.getKey(), pair.getValue()));
                     }

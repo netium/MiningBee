@@ -43,8 +43,12 @@ public class Memtable implements Iterable<Pair<String, String>>  {
         return map.get(key);
     }
 
-    public int getRawSize() {
+    public int getRawDataSize() {
         return rawSize;
+    }
+
+    public int size() {
+        return map.size();
     }
 
     @Override
