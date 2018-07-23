@@ -1,6 +1,8 @@
 package org.ctp.core.storageengine.lsm;
 
 import org.ctp.core.storageengine.IStorageEngine;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.FileFilter;
@@ -10,6 +12,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 
 public class LsmStorageEngine implements IStorageEngine {
+    final Logger logger = LoggerFactory.getLogger(LsmStorageEngine.class);
+
     private final int MEMTABLE_THRESHOLD = 1 * 1024;
     private ArrayList<InMemIndex> segmentInMemIndexList = new ArrayList();
 
@@ -139,8 +143,8 @@ public class LsmStorageEngine implements IStorageEngine {
             return true;
         }
         catch (Exception e) {
-            System.out.println(e);
-            e.printStackTrace();
+            logger.error(e.toString());
+            logger.error(e.getStackTrace().toString());
             return false;
         }
     }
@@ -184,8 +188,8 @@ public class LsmStorageEngine implements IStorageEngine {
             mergeSSTables(readers, ssTableWriter);
         }
         catch (Exception e) {
-            System.out.println(e);
-            e.printStackTrace();
+            logger.error(e.toString());
+            logger.error(e.getStackTrace().toString());
         }
 
         SSTable ssTable = new SSTable(dbPath.toString());
@@ -218,7 +222,7 @@ public class LsmStorageEngine implements IStorageEngine {
                 if (readers.get(i).peekNextKey().compareTo(minKey) < 0)
                     minKey = readers.get(i).peekNextKey();
             }
-            System.out.println("minKey: " + minKey);
+            logger.debug("minKey: " + minKey);
 
             boolean minKeyWritten = false;
             for (int i = 0; i < readers.size(); i++) {
@@ -229,7 +233,7 @@ public class LsmStorageEngine implements IStorageEngine {
                             ssTableWriter.append(pair.getKey(), pair.getValue());
                         }
                         minKeyWritten = true;
-                        System.out.println(String.format("Write <%s, %s>", pair.getKey(), pair.getValue()));
+                        logger.debug("Write <{}, {}>", pair.getKey(), pair.getValue());
                     }
                     else {
                         readers.get(i).skipItem();
@@ -261,24 +265,9 @@ public class LsmStorageEngine implements IStorageEngine {
     }
 
     private File[] readSegmentFileInDesOrder(File folder) {
-        File[] dbFiles = folder.listFiles(new FileFilter() {
-            @Override
-            public boolean accept(File pathname) {
-                return pathname.isFile() && pathname.getName().endsWith(".db");
-            }
-        });
+        File[] dbFiles = folder.listFiles(pathname -> pathname.isFile() && pathname.getName().endsWith(".db"));
 
-        Arrays.sort(dbFiles, (File file1, File file2) -> {
-                String filename1 = file1.getName();
-                String filename2 = file2.getName();
-                long integerName1 = Long.parseLong(filename1.substring(0, filename1.indexOf('.')));
-                long integerName2 = Long.parseLong(filename2.substring(0, filename2.indexOf('.')));
-                if (integerName1 < integerName2)
-                    return 1;
-                else if (integerName1 == integerName2)
-                    return 0;
-                return -1;
-        });
+        Arrays.sort(dbFiles, new DBFileComparor());
 
         return dbFiles;
     }
