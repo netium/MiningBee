@@ -3,8 +3,8 @@ package org.ctp.core.storageengine.lsm;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
-import java.io.IOException;
+import java.io.*;
+import java.nio.charset.Charset;
 import java.util.Arrays;
 
 public class WriteAheadLog {
@@ -14,18 +14,128 @@ public class WriteAheadLog {
 
     private final File logFolder;
     private final File logFile;
+    private RandomAccessFile logAccessFile;
 
-    public WriteAheadLog(String folder) throws IOException {
-        logFolder = new File(folder);
-        if (logFolder.exists() && logFolder.isFile()) {
-            throw new IllegalArgumentException();
+    public WriteAheadLog(String folder) {
+        this(new File(folder));
+    }
+
+    public WriteAheadLog(File logFolder) {
+        try {
+            if (logFolder.exists() && logFolder.isFile()) {
+                throw new IllegalArgumentException();
+            }
+            this.logFolder = logFolder;
+            if (!logFolder.exists()) {
+                logFolder.mkdirs();
+            }
+
+            correctLogFolder();
+            logFile = getLogFile();
+            logAccessFile = new RandomAccessFile(logFile, "rw");
         }
-        if (!logFolder.exists()) {
-            logFolder.mkdirs();
+        catch (IOException e) {
+            throw new WriteAheadLogException(e);
+        }
+    }
+
+    public void prepareForReplay() {
+        try {
+            logAccessFile.seek(0);
+        }
+        catch (IOException e) {
+            throw new WriteAheadLogException(e);
+        }
+    }
+
+    public boolean isEof() {
+        try {
+            return logAccessFile.getFilePointer() == logAccessFile.length();
+        } catch (IOException e) {
+            throw new WriteAheadLogException(e);
+        }
+    }
+
+    public Pair<String, String> replayNextItem() {
+        return replayNextItem(logAccessFile);
+    }
+
+    public void appendItem(String key, String value) {
+        logger.debug("WAL: APPEND: {}, {}", key, value);
+        appendItem(logAccessFile, key, value);
+    }
+
+    public WriteAheadLog createNewLogFile() {
+        try {
+            logAccessFile.close();
+            logFile.delete();
+            return new WriteAheadLog(logFolder);
+        } catch (IOException e) {
+            throw new WriteAheadLogException(e);
         }
 
-        correctLogFolder();
-        logFile = getLogFile();
+    }
+
+
+    private Pair<String, String> replayNextItem(DataInput dataInput) {
+        try {
+            int keyLength = dataInput.readByte();
+            if (keyLength < 0) {
+                throw new IllegalArgumentException();
+            }
+            byte[] keyBuf = new byte[keyLength];
+            dataInput.readFully(keyBuf);
+            String key = new String(keyBuf);
+
+            int valueLength = dataInput.readInt();
+            if (valueLength < 0) {
+                throw new IllegalArgumentException();
+            }
+            String value = null;
+            if (valueLength > 0) {
+                byte[] valueBuf = new byte[valueLength];
+                dataInput.readFully(valueBuf);
+                value = new String(valueBuf);
+            }
+
+            return new Pair<>(key, value);
+        }
+        catch (IOException e) {
+            throw new WriteAheadLogException(e);
+        }
+    }
+
+    private void appendItem(RandomAccessFile dataOutput, String key, String value) {
+        try {
+            logAccessFile.seek(logAccessFile.length());
+            if (key == null || key.length() == 0) {
+                throw new IllegalArgumentException("The key is null or empty");
+            }
+            if (value != null && value.length() == 0) {
+                throw new IllegalArgumentException("The value is empty");
+            }
+
+            byte[] keyBytes = key.getBytes(Charset.defaultCharset());
+            if (keyBytes.length > 127) {
+                throw new IllegalArgumentException("The key exceed the length");
+            }
+
+            byte[] valueBytes = value == null ? new byte[0] : value.getBytes(Charset.defaultCharset());
+            if (valueBytes.length > Integer.MAX_VALUE) {
+                throw new IllegalArgumentException("The value exceed the length");
+            }
+
+            dataOutput.writeByte(keyBytes.length);
+            dataOutput.write(keyBytes);
+            dataOutput.writeInt(valueBytes.length);
+            if (valueBytes.length > 0) {
+                dataOutput.write(valueBytes);
+            }
+            logAccessFile.getFD().sync();
+        }
+        catch (IOException e) {
+            throw new WriteAheadLogException(e);
+        }
     }
 
     private void correctLogFolder() {
@@ -48,19 +158,21 @@ public class WriteAheadLog {
         }
     }
 
-    private File getLogFile() throws IOException {
-        File[] logFiles = logFolder.listFiles(pathname -> pathname.isFile() && pathname.getName().endsWith(FILE_SUFFIX));
-        if (logFiles.length > 1) {
-            logger.error("The write ahead log folder contains {} (>0) log files", logFiles.length);
+    private File getLogFile() {
+        try {
+            File[] logFiles = logFolder.listFiles(pathname -> pathname.isFile() && pathname.getName().endsWith(FILE_SUFFIX));
+            if (logFiles.length > 1) {
+                logger.error("The write ahead log folder contains {} (>0) log files", logFiles.length);
+            }
+            if (logFiles.length > 0) {
+                return logFiles[0];
+            } else {
+                File logFile = File.createTempFile("wal", FILE_SUFFIX, logFolder);
+                return logFile;
+            }
         }
-        if (logFiles.length > 0) {
-            return logFiles[0];
-        }
-        else {
-            File logFile = File.createTempFile("", FILE_SUFFIX, logFolder);
-            return logFile;
+        catch (IOException e) {
+            throw new WriteAheadLogException(e);
         }
     }
-
-
 }

@@ -22,6 +22,8 @@ public class LsmStorageEngine implements IStorageEngine {
     private volatile Memtable currentMemtable = new Memtable();
     private volatile Memtable flushingMemtable = null;
 
+    private WriteAheadLog writeAheadLog = null;
+
     public LsmStorageEngine() {
     }
 
@@ -38,6 +40,10 @@ public class LsmStorageEngine implements IStorageEngine {
         this.dbFileFolder = dbFileFolder;
 
         buildSegmentInMemIndexList(dbFolder);
+
+        initWriteAheadLog();
+
+        replayWriteAheadLog();
     }
 
     @Override
@@ -50,14 +56,14 @@ public class LsmStorageEngine implements IStorageEngine {
                 throw new IllegalArgumentException();
             }
 
+            writeAheadLog.appendItem(key, value);
             currentMemtable.put(key, value);
             if (currentMemtable.getRawDataSize() >= MEMTABLE_THRESHOLD) {
                 createSSTable();
             }
 
             return true;
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             System.out.println(e);
             e.printStackTrace();
             return false;
@@ -79,8 +85,7 @@ public class LsmStorageEngine implements IStorageEngine {
                 }
             }
             return null;
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             System.out.println(e);
             e.printStackTrace();
             return null;
@@ -90,13 +95,13 @@ public class LsmStorageEngine implements IStorageEngine {
     @Override
     public boolean delete(String key) {
         try {
+            writeAheadLog.appendItem(key, null);
             currentMemtable.delete(key);
             if (currentMemtable.getRawDataSize() >= MEMTABLE_THRESHOLD) {
                 createSSTable();
             }
             return true;
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             System.out.println(e);
             e.printStackTrace();
             return false;
@@ -128,6 +133,9 @@ public class LsmStorageEngine implements IStorageEngine {
         for (InMemIndex inMemIndex : segmentInMemIndexList) {
             sb.append("\t SSTable: " + inMemIndex.getSSTable().getFilename() + "\n");
         }
+        if (segmentInMemIndexList.size() == 0) {
+            sb.append("\n");
+        }
 
         return sb.toString();
     }
@@ -141,8 +149,7 @@ public class LsmStorageEngine implements IStorageEngine {
         try {
             createSSTable();
             return true;
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             logger.error(e.toString());
             logger.error(e.getStackTrace().toString());
             return false;
@@ -161,6 +168,7 @@ public class LsmStorageEngine implements IStorageEngine {
 
         try {
             ssTable = SSTable.flush(this.flushingMemtable, dbPath.toString());
+            writeAheadLog = writeAheadLog.createNewLogFile();
         } catch (IOException e) {
             throw new LsmStorageEngineException(e);
         }
@@ -186,8 +194,7 @@ public class LsmStorageEngine implements IStorageEngine {
                 readers.add(inMemIndex.getSSTable().getSequenceReader());
             }
             mergeSSTables(readers, ssTableWriter);
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             logger.error(e.toString());
             logger.error(e.getStackTrace().toString());
         }
@@ -230,12 +237,11 @@ public class LsmStorageEngine implements IStorageEngine {
                     if (!minKeyWritten) {
                         Pair<String, String> pair = readers.get(i).read();
                         if (pair.getValue() != null) {
+                            logger.debug("Write <{}, {}>", pair.getKey(), pair.getValue());
                             ssTableWriter.append(pair.getKey(), pair.getValue());
                         }
                         minKeyWritten = true;
-                        logger.debug("Write <{}, {}>", pair.getKey(), pair.getValue());
-                    }
-                    else {
+                    } else {
                         readers.get(i).skipItem();
                     }
                 }
@@ -251,8 +257,7 @@ public class LsmStorageEngine implements IStorageEngine {
     private SSTable.SSTableSequenceReader getSSTableSequenceReader(SSTable ssTable) {
         try {
             return ssTable.getSequenceReader();
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             return null;
         }
     }
@@ -271,4 +276,21 @@ public class LsmStorageEngine implements IStorageEngine {
 
         return dbFiles;
     }
+
+    private void initWriteAheadLog() {
+        writeAheadLog = new WriteAheadLog("./wal");
+    }
+
+    private void replayWriteAheadLog() {
+        logger.debug("Start to replay WAL");
+        writeAheadLog.prepareForReplay();
+        while (!writeAheadLog.isEof()) {
+            Pair<String, String> pair = writeAheadLog.replayNextItem();
+            logger.debug("Replay item: {}, {}", pair.getKey(), pair.getValue());
+            currentMemtable.put(pair.getKey(), pair.getValue());
+        }
+        logger.debug("Replay WAL done");
+    }
 }
+
+
