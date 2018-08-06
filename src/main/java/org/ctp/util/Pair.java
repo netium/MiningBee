@@ -1,6 +1,6 @@
-package org.ctp.core.storageengine.lsm;
+package org.ctp.util;
 
-class Pair<K, V> {
+public class Pair<K, V> {
     private final K key;
     private final V value;
 

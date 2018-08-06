@@ -1,11 +1,11 @@
 package org.ctp.core.storageengine.lsm;
 
 import org.ctp.core.storageengine.IStorageEngine;
+import org.ctp.util.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
-import java.io.FileFilter;
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.ArrayList;
