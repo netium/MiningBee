@@ -1,8 +1,12 @@
 package org.ctp.cli;
 
+import io.netty.bootstrap.ServerBootstrap;
+import io.netty.channel.*;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.nio.NioServerSocketChannel;
 import org.ctp.core.storageengine.IStorageEngine;
 import org.ctp.core.storageengine.lsm.LsmStorageEngine;
-import org.ctp.network.telnet.TelnetBaseNetworkServer;
+import org.ctp.network.telnet.TelnetServerInitializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -16,12 +20,12 @@ public class App
 
     private Thread networkThread;
 
-    public static void main( String[] args ) {
+    public static void main( String[] args ) throws InterruptedException {
         App app = new App();
         app.init("./db");
         app.showBanner();
         // app.runCommandLoop();
-        app.runForNetwork();
+        app.runByNetty();
     }
 
     private void showBanner() {
@@ -43,13 +47,24 @@ public class App
         executor.execute();
     }
 
-    private void runForNetwork() {
+    private void runByNetty() throws InterruptedException {
+        final int PORT = 18889;
+        EventLoopGroup bossGroup = new NioEventLoopGroup(1);
+        EventLoopGroup workerGroup = new NioEventLoopGroup(1);
+
         try {
-            TelnetBaseNetworkServer server = new TelnetBaseNetworkServer(storageEngine);
-            Thread thread = new Thread(server);
-            thread.run();
-        } catch (IOException e) {
-            e.printStackTrace();
+            ServerBootstrap b = new ServerBootstrap();
+            b.group(bossGroup, workerGroup)
+                    .channel(NioServerSocketChannel.class)
+                    .childHandler(new TelnetServerInitializer(storageEngine));
+
+            b.bind(PORT).sync().channel().closeFuture().sync();
+        }
+        finally {
+            if (bossGroup != null)
+                bossGroup.shutdownGracefully();
+            if (workerGroup != null)
+                workerGroup.shutdownGracefully();
         }
     }
 }
