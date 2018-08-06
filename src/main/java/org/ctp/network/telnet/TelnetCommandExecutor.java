@@ -4,7 +4,6 @@ import org.antlr.v4.runtime.ANTLRInputStream;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.ParseTreeWalker;
-import org.ctp.cli.CliCommandLoop;
 import org.ctp.cli.cliBaseListener;
 import org.ctp.cli.cliLexer;
 import org.ctp.cli.cliParser;
@@ -13,24 +12,25 @@ import org.ctp.core.storageengine.lsm.LsmStorageEngine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
 import java.io.PrintStream;
-import java.nio.channels.SocketChannel;
 import java.util.Scanner;
 
 public class TelnetCommandExecutor extends cliBaseListener {
     private final Logger logger = LoggerFactory.getLogger(TelnetCommandExecutor.class);
 
     private final IStorageEngine storageEngine;
-    private final SocketChannel channel;
 
     private PrintStream outputPrintStream;
     private PrintStream errorPrintStream;
 
+    private boolean clientWantExiting = false;
 
-    public TelnetCommandExecutor(IStorageEngine storageEngine, SocketChannel channel) {
+    public boolean isClientWantExiting() {
+        return clientWantExiting;
+    }
+
+    public TelnetCommandExecutor(IStorageEngine storageEngine) {
         this.storageEngine = storageEngine;
-        this.channel = channel;
     }
 
     public void executeCommand(String command, PrintStream outputStream, PrintStream errorStream) {
@@ -107,12 +107,8 @@ public class TelnetCommandExecutor extends cliBaseListener {
         if (ctx.exception != null)
             return;
 
-        try {
-            channel.close();
-        }
-        catch (IOException e) {
-            logger.error("Failed to close the socket!");
-        }
+        outputPrintStream.println("bye!");
+        clientWantExiting = true;
     }
 
     private String normalizeValueString(String valueString) {
