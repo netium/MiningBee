@@ -4,27 +4,45 @@ import org.ctp.core.storageengine.IStorageEngine;
 import org.ctp.util.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.Marker;
+import org.slf4j.MarkerFactory;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Stream;
 
 public class LsmStorageEngine implements IStorageEngine {
     final Logger logger = LoggerFactory.getLogger(LsmStorageEngine.class);
 
     private final int MEMTABLE_THRESHOLD = 1 * 1024;
-    private ArrayList<InMemIndex> segmentInMemIndexList = new ArrayList();
+
+    private Thread compactAndMergeThread = null;
+    private ExecutorService executorService = Executors.newFixedThreadPool(1);
+
+    private final ReadWriteLock inMemIndexListLock = new ReentrantReadWriteLock();
+    private final Lock inMemIndexListUpdateLock = inMemIndexListLock.writeLock();
+    private final Lock inMemIndexListReadLock = inMemIndexListLock.readLock();
+
+    private CopyOnWriteArrayList<InMemIndex> segmentInMemIndexList = new CopyOnWriteArrayList<>();
 
     private String dbFileFolder;
 
-    private volatile Memtable currentMemtable = new Memtable();
-    private volatile Memtable flushingMemtable = null;
+    private AtomicReference<Memtable> currentMemtableARef;
+    private AtomicReference<Memtable> flushingMemtableARef = new AtomicReference<>();
 
     private WriteAheadLog writeAheadLog = null;
 
     public LsmStorageEngine() {
+        currentMemtableARef = new AtomicReference<>();
+        currentMemtableARef.set(new Memtable());
     }
 
     @Override
@@ -41,6 +59,9 @@ public class LsmStorageEngine implements IStorageEngine {
 
         buildSegmentInMemIndexList(dbFolder);
 
+        compactAndMergeThread = new Thread(new SSTableCompactor());
+        compactAndMergeThread.start();
+
         initWriteAheadLog();
 
         replayWriteAheadLog();
@@ -55,6 +76,8 @@ public class LsmStorageEngine implements IStorageEngine {
             if (value == null || value.length() == 0) {
                 throw new IllegalArgumentException();
             }
+
+            Memtable currentMemtable = this.currentMemtableARef.get();
 
             writeAheadLog.appendItem(key, value);
             currentMemtable.put(key, value);
@@ -73,6 +96,9 @@ public class LsmStorageEngine implements IStorageEngine {
     @Override
     public String read(String key) {
         try {
+            Memtable currentMemtable = this.currentMemtableARef.get();
+            Memtable flushingMemtable = this.flushingMemtableARef.get();
+
             if (currentMemtable.containsKey(key))
                 return currentMemtable.get(key);
             else if (flushingMemtable != null && flushingMemtable.containsKey(key))
@@ -95,6 +121,7 @@ public class LsmStorageEngine implements IStorageEngine {
     @Override
     public boolean delete(String key) {
         try {
+            Memtable currentMemtable = currentMemtableARef.get();
             writeAheadLog.appendItem(key, null);
             currentMemtable.delete(key);
             if (currentMemtable.getRawDataSize() >= MEMTABLE_THRESHOLD) {
@@ -157,57 +184,31 @@ public class LsmStorageEngine implements IStorageEngine {
     }
 
     private void createSSTable() {
+        Memtable currentMemtable = currentMemtableARef.get();
         if (currentMemtable.size() == 0)
             return;
 
-        this.flushingMemtable = this.currentMemtable;
-        this.currentMemtable = new Memtable();
+        while (!this.flushingMemtableARef.compareAndSet(null, currentMemtable));
 
-        Path dbPath = generateSSTablePath();
-        SSTable ssTable = null;
+        this.currentMemtableARef.set(new Memtable());
+
+        final Path dbPath = generateSSTablePath();
 
         try {
-            ssTable = SSTable.flush(this.flushingMemtable, dbPath.toString());
-            writeAheadLog = writeAheadLog.createNewLogFile();
-        } catch (IOException e) {
-            throw new LsmStorageEngineException(e);
+            Future future = executorService.submit(() -> flushMemTable(dbPath));
+            future.get();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        } catch (ExecutionException e) {
+            e.printStackTrace();
         }
-
-        InMemIndex memIndex = new InMemIndex(ssTable);
-        segmentInMemIndexList.add(0, memIndex);
-        compactAndMerge();
     }
 
     private Path generateSSTablePath() {
-        return Paths.get(dbFileFolder, generateSSTableName());
+        return Paths.get(dbFileFolder, DBFilenameUtil.generateNewSSTableDBName());
     }
 
-    private String generateSSTableName() {
-        return System.currentTimeMillis() + ".db";
-    }
 
-    private void compactAndMerge() {
-        Path dbPath = generateSSTablePath();
-        try (SSTable.SSTableWriter ssTableWriter = SSTable.openForWriteItem(dbPath.toString())) {
-            ArrayList<SSTable.SSTableSequenceReader> readers = new ArrayList<>();
-            for (InMemIndex inMemIndex : segmentInMemIndexList) {
-                readers.add(inMemIndex.getSSTable().getSequenceReader());
-            }
-            mergeSSTables(readers, ssTableWriter);
-        } catch (Exception e) {
-            logger.error(e.toString());
-            logger.error(e.getStackTrace().toString());
-        }
-
-        SSTable ssTable = new SSTable(dbPath.toString());
-        InMemIndex memIndex = new InMemIndex(ssTable);
-
-        ArrayList<InMemIndex> oldIndexList = new ArrayList<>(segmentInMemIndexList);
-        removeSSTables(oldIndexList);
-
-        segmentInMemIndexList.clear();
-        segmentInMemIndexList.add(memIndex);
-    }
 
     private void removeSSTables(ArrayList<InMemIndex> oldIndexList) {
         for (InMemIndex index : oldIndexList) {
@@ -284,6 +285,7 @@ public class LsmStorageEngine implements IStorageEngine {
     private void replayWriteAheadLog() {
         logger.debug("Start to replay WAL");
         writeAheadLog.prepareForReplay();
+        Memtable currentMemtable = currentMemtableARef.get();
         while (!writeAheadLog.isEof()) {
             Pair<String, String> pair = writeAheadLog.replayNextItem();
             logger.debug("Replay item: {}, {}", pair.getKey(), pair.getValue());
@@ -291,6 +293,137 @@ public class LsmStorageEngine implements IStorageEngine {
         }
         logger.debug("Replay WAL done");
     }
+
+    private void flushMemTable(final Path sstableFilePath) {
+        Marker marker = MarkerFactory.getMarker("FLUSHMEMTABLE");
+
+        SSTable ssTable = null;
+
+        try {
+            logger.info("Star to flushing memtable to " + sstableFilePath.toString());
+            Memtable flushingMemtable = flushingMemtableARef.get();
+            ssTable = SSTable.flush(flushingMemtable, sstableFilePath.toString());
+            writeAheadLog = writeAheadLog.createNewLogFile();
+            if (!flushingMemtableARef.compareAndSet(flushingMemtable, null)) {
+                final String errorString = "The flushing table is changed during the flushing, critical error occur!";
+                logger.error(errorString);
+                throw new LsmStorageEngineException(errorString);
+            }
+        } catch (IOException e) {
+            throw new LsmStorageEngineException(e);
+        }
+
+        InMemIndex memIndex = new InMemIndex(ssTable);
+
+        try {
+            while (!inMemIndexListUpdateLock.tryLock(10, TimeUnit.SECONDS))
+                logger.error(marker, "failed to acquire write lock in 10seconds");
+
+            try {
+                segmentInMemIndexList.add(0, memIndex);
+            }
+            finally {
+                inMemIndexListUpdateLock.unlock();
+            }
+            logger.info("Finish flushing memtable to " + sstableFilePath.toString());
+        }
+        catch (InterruptedException e) {
+            logger.warn(marker, "The lock acquiring is interrupted");
+        }
+    }
+
+    private class SSTableCompactor implements Runnable {
+        private final Logger logger = LoggerFactory.getLogger(SSTableCompactor.class);
+        private final Marker marker = MarkerFactory.getMarker("MERGE-N-COMPACT");
+
+        @Override
+        public void run() {
+            logger.info("Compact and merge background thread starting...");
+            while (true) {
+                try {
+                    compactAndMerge();
+                    Thread.sleep(5 * 1000);
+                } catch (InterruptedException e) {
+                    logger.warn(marker, "The merge and compact thread is interrupted.");
+                }
+            }
+            // logger.info("Compact and merge background thread stopping...");
+        }
+
+        private void compactAndMerge() throws InterruptedException {
+            if (!isMergeAndCompactNeed()) {
+                logger.info(marker, "The merge-n-compact criteria is not reached, skip");
+                return;
+            }
+
+            logger.info(marker, "Start to do the merge-n-compact");
+            Path dbPath = createNewDBMergedFile();
+            Path dbTempPath = Paths.get(dbPath.toString() + ".tmp");
+
+            try (SSTable.SSTableWriter ssTableWriter = SSTable.openForWriteItem(dbPath.toString())) {
+                ArrayList<SSTable.SSTableSequenceReader> readers = new ArrayList<>();
+
+                while (!inMemIndexListReadLock.tryLock(10, TimeUnit.SECONDS))
+                    logger.warn(marker, "failed to acquire read lock in 10sec");
+
+                try {
+                    for (InMemIndex inMemIndex : segmentInMemIndexList) {
+                        readers.add(inMemIndex.getSSTable().getSequenceReader());
+                    }
+                }
+                finally {
+                    inMemIndexListReadLock.unlock();
+                }
+
+                mergeSSTables(readers, ssTableWriter);
+            } catch (Exception e) {
+                logger.error(e.toString());
+                logger.error(e.getStackTrace().toString());
+            }
+
+            dbTempPath.toFile().renameTo(dbPath.toFile());
+
+            SSTable ssTable = new SSTable(dbPath.toString());
+            InMemIndex memIndex = new InMemIndex(ssTable);
+
+            while (!inMemIndexListUpdateLock.tryLock(10, TimeUnit.SECONDS))
+                logger.warn(marker, "failed to acquire write lock in 10sec");
+
+            try {
+                ArrayList<InMemIndex> oldIndexList = new ArrayList<>(segmentInMemIndexList);
+                removeSSTables(oldIndexList);
+
+                segmentInMemIndexList.clear();
+                segmentInMemIndexList.add(memIndex);
+            }
+            finally {
+                inMemIndexListUpdateLock.unlock();
+            }
+
+            logger.info(marker, "Finish the merge-n-compact");
+        }
+
+        private Path createNewDBMergedFile() {
+            Stream<String> filenames = segmentInMemIndexList.stream().map(p->p.getSSTable().getFilename());
+            Stream<File> files = filenames.map(p-> new File(p));
+            String newMergedDBName = DBFilenameUtil.generateNewMergedDBName(files);
+            return Paths.get(dbFileFolder, newMergedDBName);
+        }
+
+        private boolean isMergeAndCompactNeed() throws InterruptedException {
+            while (!inMemIndexListReadLock.tryLock(10, TimeUnit.SECONDS))
+                logger.warn(marker, "failed to acquire read lock in 10sec for merging/compacting criteria checking");
+
+            try {
+                logger.debug(marker, "Current SSTable files: " + segmentInMemIndexList.size());
+                return segmentInMemIndexList.size() >= 3;
+            }
+            finally {
+                inMemIndexListReadLock.unlock();
+            }
+        }
+    }
+
 }
 
 
