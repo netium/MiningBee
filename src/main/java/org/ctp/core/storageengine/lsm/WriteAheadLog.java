@@ -40,7 +40,7 @@ public class WriteAheadLog {
         }
     }
 
-    public void prepareForReplay() {
+    public synchronized void prepareForReplay() {
         try {
             logAccessFile.seek(0);
         }
@@ -49,7 +49,7 @@ public class WriteAheadLog {
         }
     }
 
-    public boolean isEof() {
+    public synchronized boolean isEof() {
         try {
             return logAccessFile.getFilePointer() == logAccessFile.length();
         } catch (IOException e) {
@@ -57,16 +57,16 @@ public class WriteAheadLog {
         }
     }
 
-    public Pair<String, String> replayNextItem() {
+    public synchronized Pair<String, String> replayNextItem() {
         return replayNextItem(logAccessFile);
     }
 
-    public void appendItem(String key, String value) {
+    public synchronized void appendItem(String key, String value) {
         logger.debug("WAL: APPEND: {}, {}", key, value);
         appendItem(logAccessFile, key, value);
     }
 
-    public WriteAheadLog createNewLogFile() {
+    public synchronized WriteAheadLog createNewLogFile() {
         try {
             logAccessFile.close();
             logFile.delete();
