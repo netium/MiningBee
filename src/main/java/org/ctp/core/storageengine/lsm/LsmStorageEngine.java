@@ -194,14 +194,7 @@ public class LsmStorageEngine implements IStorageEngine {
 
         final Path dbPath = generateSSTablePath();
 
-        try {
-            Future future = executorService.submit(() -> flushMemTable(dbPath));
-            future.get();
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        } catch (ExecutionException e) {
-            e.printStackTrace();
-        }
+        Future future = executorService.submit(() -> flushMemTable(dbPath));
     }
 
     private Path generateSSTablePath() {
@@ -316,19 +309,24 @@ public class LsmStorageEngine implements IStorageEngine {
         InMemIndex memIndex = new InMemIndex(ssTable);
 
         try {
-            while (!inMemIndexListUpdateLock.tryLock(10, TimeUnit.SECONDS))
-                logger.error(marker, "failed to acquire write lock in 10seconds");
-
-            try {
-                segmentInMemIndexList.add(0, memIndex);
-            }
-            finally {
-                inMemIndexListUpdateLock.unlock();
-            }
+            runTimeoutCheckedCriticalSection(inMemIndexListUpdateLock,
+                    () -> segmentInMemIndexList.add(0, memIndex));
             logger.info("Finish flushing memtable to " + sstableFilePath.toString());
         }
         catch (InterruptedException e) {
             logger.warn(marker, "The lock acquiring is interrupted");
+        }
+    }
+
+    private void runTimeoutCheckedCriticalSection(Lock lock, Runnable criticalSection) throws InterruptedException {
+        if (!lock.tryLock(20, TimeUnit.SECONDS))
+            throw new AcquireLockTimeoutException("Failed to acquire lock " + lock.toString() + " in thread: " + Thread.currentThread().getName());
+
+        try {
+            criticalSection.run();
+        }
+        finally {
+            lock.unlock();
         }
     }
 
@@ -360,6 +358,7 @@ public class LsmStorageEngine implements IStorageEngine {
             Path dbPath = createNewDBMergedFile();
             Path dbTempPath = Paths.get(dbPath.toString() + ".tmp");
 
+            ArrayList<InMemIndex> inMemIndexListSnapshot = null;
             try (SSTable.SSTableWriter ssTableWriter = SSTable.openForWriteItem(dbPath.toString())) {
                 ArrayList<SSTable.SSTableSequenceReader> readers = new ArrayList<>();
 
@@ -367,6 +366,7 @@ public class LsmStorageEngine implements IStorageEngine {
                     logger.warn(marker, "failed to acquire read lock in 10sec");
 
                 try {
+                    inMemIndexListSnapshot = new ArrayList<>(segmentInMemIndexList);
                     for (InMemIndex inMemIndex : segmentInMemIndexList) {
                         readers.add(inMemIndex.getSSTable().getSequenceReader());
                     }
@@ -390,10 +390,12 @@ public class LsmStorageEngine implements IStorageEngine {
                 logger.warn(marker, "failed to acquire write lock in 10sec");
 
             try {
-                ArrayList<InMemIndex> oldIndexList = new ArrayList<>(segmentInMemIndexList);
+                ArrayList<InMemIndex> oldIndexList = inMemIndexListSnapshot;
                 removeSSTables(oldIndexList);
 
-                segmentInMemIndexList.clear();
+                for (InMemIndex inMemIndex : inMemIndexListSnapshot) {
+                    segmentInMemIndexList.remove(inMemIndex);
+                }
                 segmentInMemIndexList.add(memIndex);
             }
             finally {
