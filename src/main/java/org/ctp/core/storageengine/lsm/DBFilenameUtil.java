@@ -8,6 +8,8 @@ import java.util.stream.Stream;
 public final class DBFilenameUtil {
     private DBFilenameUtil() {}
 
+    public static final String DBFILE_EXTENSION = ".db";
+
     public static long getFileOrderIndex(String filename) {
         String filenameWithoutExtension = filename.substring(0, filename.lastIndexOf('.'));
         String orderIndex = filenameWithoutExtension.split("-")[0];
@@ -27,7 +29,7 @@ public final class DBFilenameUtil {
     }
 
     public static String generateNewSSTableDBName() {
-        return System.currentTimeMillis() + ".db";
+        return System.currentTimeMillis() + DBFILE_EXTENSION;
     }
 
     public static String generateNewMergedDBName(Stream<File> files) {
@@ -35,7 +37,7 @@ public final class DBFilenameUtil {
         String latestFileName = latestFile.getName();
         String nameWithoutExtension = latestFileName.substring(0, latestFileName.lastIndexOf('.'));
         nameWithoutExtension = nameWithoutExtension + "-m";
-        String newMergedDBName = nameWithoutExtension + ".db";
+        String newMergedDBName = nameWithoutExtension + DBFILE_EXTENSION;
         return newMergedDBName;
     }
 }
