@@ -19,10 +19,15 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Stream;
 
+import static org.ctp.core.storageengine.lsm.DBFilenameUtil.DBFILE_EXTENSION;
+
 public class LsmStorageEngine implements IStorageEngine {
     final Logger logger = LoggerFactory.getLogger(LsmStorageEngine.class);
 
-    private final int MEMTABLE_THRESHOLD = 1 * 1024;
+    private static final int ACQUIRE_LOCK_TIMEOUT = 20;
+    private static final TimeUnit ACQUIRE_LOCK_TIMEOUT_UNIT = TimeUnit.SECONDS;
+
+    private static final int MEMTABLE_THRESHOLD = 1 * 1024;
 
     private Thread compactAndMergeThread = null;
     private ExecutorService executorService = Executors.newFixedThreadPool(1);
@@ -194,7 +199,7 @@ public class LsmStorageEngine implements IStorageEngine {
 
         final Path dbPath = generateSSTablePath();
 
-        Future future = executorService.submit(() -> flushMemTable(dbPath));
+        executorService.submit(() -> flushMemTable(dbPath));
     }
 
     private Path generateSSTablePath() {
@@ -264,7 +269,7 @@ public class LsmStorageEngine implements IStorageEngine {
     }
 
     private File[] readSegmentFileInDesOrder(File folder) {
-        File[] dbFiles = folder.listFiles(pathname -> pathname.isFile() && pathname.getName().endsWith(".db"));
+        File[] dbFiles = folder.listFiles(pathname -> pathname.isFile() && pathname.getName().endsWith(DBFILE_EXTENSION));
 
         Arrays.sort(dbFiles, new DBFileComparor());
 
@@ -297,6 +302,11 @@ public class LsmStorageEngine implements IStorageEngine {
             Memtable flushingMemtable = flushingMemtableARef.get();
             ssTable = SSTable.flush(flushingMemtable, sstableFilePath.toString());
             writeAheadLog = writeAheadLog.createNewLogFile();
+
+            InMemIndex memIndex = new InMemIndex(ssTable);
+            runTimeoutCheckedCriticalSection(inMemIndexListUpdateLock,
+                    () -> segmentInMemIndexList.add(0, memIndex));
+
             if (!flushingMemtableARef.compareAndSet(flushingMemtable, null)) {
                 final String errorString = "The flushing table is changed during the flushing, critical error occur!";
                 logger.error(errorString);
@@ -304,22 +314,92 @@ public class LsmStorageEngine implements IStorageEngine {
             }
         } catch (IOException e) {
             throw new LsmStorageEngineException(e);
+        } catch (InterruptedException e) {
+            logger.warn(marker, "The lock acquiring is interrupted");
+        }
+        logger.info("Finish flushing memtable to " + sstableFilePath.toString());
+    }
+
+
+    private void compactAndMerge() throws InterruptedException {
+        if (!isMergeAndCompactNeed()) {
+            logger.info("The merge-n-compact criteria is not reached, skip");
+            return;
         }
 
+        logger.info("Start to do the merge-n-compact");
+        Path dbPath = createNewDBMergedFile();
+        Path dbTempPath = Paths.get(dbPath.toString() + ".tmp");
+
+        ArrayList<InMemIndex> inMemIndexListSnapshot = null;
+        try (SSTable.SSTableWriter ssTableWriter = SSTable.openForWriteItem(dbPath.toString())) {
+            ArrayList<SSTable.SSTableSequenceReader> readers = new ArrayList<>();
+
+            while (!inMemIndexListReadLock.tryLock(ACQUIRE_LOCK_TIMEOUT, ACQUIRE_LOCK_TIMEOUT_UNIT))
+                logger.warn("failed to acquire read lock in 10sec");
+
+            try {
+                inMemIndexListSnapshot = new ArrayList<>(segmentInMemIndexList);
+                for (InMemIndex inMemIndex : segmentInMemIndexList) {
+                    readers.add(inMemIndex.getSSTable().getSequenceReader());
+                }
+            }
+            finally {
+                inMemIndexListReadLock.unlock();
+            }
+
+            mergeSSTables(readers, ssTableWriter);
+        } catch (Exception e) {
+            logger.error(e.toString());
+            logger.error(e.getStackTrace().toString());
+        }
+
+        dbTempPath.toFile().renameTo(dbPath.toFile());
+
+        SSTable ssTable = new SSTable(dbPath.toString());
         InMemIndex memIndex = new InMemIndex(ssTable);
 
+        while (!inMemIndexListUpdateLock.tryLock(10, TimeUnit.SECONDS))
+            logger.warn("failed to acquire write lock in 10sec");
+
         try {
-            runTimeoutCheckedCriticalSection(inMemIndexListUpdateLock,
-                    () -> segmentInMemIndexList.add(0, memIndex));
-            logger.info("Finish flushing memtable to " + sstableFilePath.toString());
+            ArrayList<InMemIndex> oldIndexList = inMemIndexListSnapshot;
+            removeSSTables(oldIndexList);
+
+            for (InMemIndex inMemIndex : inMemIndexListSnapshot) {
+                segmentInMemIndexList.remove(inMemIndex);
+            }
+            segmentInMemIndexList.add(memIndex);
         }
-        catch (InterruptedException e) {
-            logger.warn(marker, "The lock acquiring is interrupted");
+        finally {
+            inMemIndexListUpdateLock.unlock();
+        }
+
+        logger.info("Finish the merge-n-compact");
+    }
+
+    private Path createNewDBMergedFile() {
+        Stream<String> filenames = segmentInMemIndexList.stream().map(p->p.getSSTable().getFilename());
+        Stream<File> files = filenames.map(p-> new File(p));
+        String newMergedDBName = DBFilenameUtil.generateNewMergedDBName(files);
+        return Paths.get(dbFileFolder, newMergedDBName);
+    }
+
+    private boolean isMergeAndCompactNeed() throws InterruptedException {
+        while (!inMemIndexListReadLock.tryLock(10, TimeUnit.SECONDS))
+            logger.warn("failed to acquire read lock in 10sec for merging/compacting criteria checking");
+
+        try {
+            logger.debug("Current SSTable files: " + segmentInMemIndexList.size());
+            return segmentInMemIndexList.size() >= 3;
+        }
+        finally {
+            inMemIndexListReadLock.unlock();
         }
     }
 
     private void runTimeoutCheckedCriticalSection(Lock lock, Runnable criticalSection) throws InterruptedException {
-        if (!lock.tryLock(20, TimeUnit.SECONDS))
+        if (!lock.tryLock(ACQUIRE_LOCK_TIMEOUT, ACQUIRE_LOCK_TIMEOUT_UNIT))
             throw new AcquireLockTimeoutException("Failed to acquire lock " + lock.toString() + " in thread: " + Thread.currentThread().getName());
 
         try {
@@ -336,7 +416,7 @@ public class LsmStorageEngine implements IStorageEngine {
 
         @Override
         public void run() {
-            logger.info("Compact and merge background thread starting...");
+            logger.info(marker, "Compact and merge background thread starting...");
             while (true) {
                 try {
                     compactAndMerge();
@@ -348,82 +428,6 @@ public class LsmStorageEngine implements IStorageEngine {
             // logger.info("Compact and merge background thread stopping...");
         }
 
-        private void compactAndMerge() throws InterruptedException {
-            if (!isMergeAndCompactNeed()) {
-                logger.info(marker, "The merge-n-compact criteria is not reached, skip");
-                return;
-            }
-
-            logger.info(marker, "Start to do the merge-n-compact");
-            Path dbPath = createNewDBMergedFile();
-            Path dbTempPath = Paths.get(dbPath.toString() + ".tmp");
-
-            ArrayList<InMemIndex> inMemIndexListSnapshot = null;
-            try (SSTable.SSTableWriter ssTableWriter = SSTable.openForWriteItem(dbPath.toString())) {
-                ArrayList<SSTable.SSTableSequenceReader> readers = new ArrayList<>();
-
-                while (!inMemIndexListReadLock.tryLock(10, TimeUnit.SECONDS))
-                    logger.warn(marker, "failed to acquire read lock in 10sec");
-
-                try {
-                    inMemIndexListSnapshot = new ArrayList<>(segmentInMemIndexList);
-                    for (InMemIndex inMemIndex : segmentInMemIndexList) {
-                        readers.add(inMemIndex.getSSTable().getSequenceReader());
-                    }
-                }
-                finally {
-                    inMemIndexListReadLock.unlock();
-                }
-
-                mergeSSTables(readers, ssTableWriter);
-            } catch (Exception e) {
-                logger.error(e.toString());
-                logger.error(e.getStackTrace().toString());
-            }
-
-            dbTempPath.toFile().renameTo(dbPath.toFile());
-
-            SSTable ssTable = new SSTable(dbPath.toString());
-            InMemIndex memIndex = new InMemIndex(ssTable);
-
-            while (!inMemIndexListUpdateLock.tryLock(10, TimeUnit.SECONDS))
-                logger.warn(marker, "failed to acquire write lock in 10sec");
-
-            try {
-                ArrayList<InMemIndex> oldIndexList = inMemIndexListSnapshot;
-                removeSSTables(oldIndexList);
-
-                for (InMemIndex inMemIndex : inMemIndexListSnapshot) {
-                    segmentInMemIndexList.remove(inMemIndex);
-                }
-                segmentInMemIndexList.add(memIndex);
-            }
-            finally {
-                inMemIndexListUpdateLock.unlock();
-            }
-
-            logger.info(marker, "Finish the merge-n-compact");
-        }
-
-        private Path createNewDBMergedFile() {
-            Stream<String> filenames = segmentInMemIndexList.stream().map(p->p.getSSTable().getFilename());
-            Stream<File> files = filenames.map(p-> new File(p));
-            String newMergedDBName = DBFilenameUtil.generateNewMergedDBName(files);
-            return Paths.get(dbFileFolder, newMergedDBName);
-        }
-
-        private boolean isMergeAndCompactNeed() throws InterruptedException {
-            while (!inMemIndexListReadLock.tryLock(10, TimeUnit.SECONDS))
-                logger.warn(marker, "failed to acquire read lock in 10sec for merging/compacting criteria checking");
-
-            try {
-                logger.debug(marker, "Current SSTable files: " + segmentInMemIndexList.size());
-                return segmentInMemIndexList.size() >= 3;
-            }
-            finally {
-                inMemIndexListReadLock.unlock();
-            }
-        }
     }
 
 }
