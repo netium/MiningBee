@@ -6,7 +6,11 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import org.ctp.core.storageengine.IStorageEngine;
 import org.ctp.core.storageengine.lsm.LsmStorageEngine;
+import org.ctp.core.storageengine.lsm.ZeusStateMachine;
 import org.ctp.network.telnet.TelnetServerInitializer;
+import org.jgroups.JChannel;
+import org.jgroups.protocols.raft.RaftHeader;
+import org.jgroups.raft.RaftHandle;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,12 +24,13 @@ public class App
 
     private Thread networkThread;
 
-    public static void main( String[] args ) throws InterruptedException {
+    public static void main( String[] args ) throws Exception {
         App app = new App();
         app.init("./db");
         app.showBanner();
         // app.runCommandLoop();
-        app.runByNetty();
+        // app.runByNetty();
+        app.runByJgroupsRaft(args[0]);
     }
 
     private void showBanner() {
@@ -45,6 +50,13 @@ public class App
     private void runCommandLoop()  {
         CliCommandLoop executor = new CliCommandLoop(storageEngine, System.in, System.out, System.err);
         executor.execute();
+    }
+
+    private void runByJgroupsRaft(String serverId) throws Exception {
+        final String configuration = "/Users/bzhou/Documents/zeus-cluster.xml";
+        final String clusterName = "zeus-cluster";
+        RaftBaseClusterServer server = new RaftBaseClusterServer(configuration, serverId, clusterName, storageEngine);
+        server.start();
     }
 
     private void runByNetty() throws InterruptedException {
