@@ -1,5 +1,7 @@
-package org.ctp.core.storageengine.lsm;
+package org.ctp.core.storageengine.server.smr;
 
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelFutureListener;
 import org.ctp.core.storageengine.IStorageEngine;
 import org.ctp.network.telnet.TelnetCommandExecutor;
 import org.jgroups.protocols.raft.RAFT;
@@ -8,8 +10,8 @@ import org.jgroups.protocols.raft.StateMachine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.DataInput;
-import java.io.DataOutput;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
 
 public class ZeusStateMachine implements StateMachine, RAFT.RoleChange {
     private final Logger logger = LoggerFactory.getLogger(ZeusStateMachine.class);
@@ -24,9 +26,20 @@ public class ZeusStateMachine implements StateMachine, RAFT.RoleChange {
 
     @Override
     public byte[] apply(byte[] bytes, int offset, int length) throws Exception {
-        String s = new String(bytes);
-        System.out.println("Receive command: s");
-        return new byte[0];
+        String cmd = new String(bytes);
+        logger.debug("Processing command: " + cmd);
+
+        ByteArrayOutputStream normalOutputStream = new ByteArrayOutputStream();
+        ByteArrayOutputStream errorOutputStream = new ByteArrayOutputStream();
+
+        try (PrintStream outputPrintStream = new PrintStream(normalOutputStream, true, StandardCharsets.US_ASCII.toString());
+             PrintStream errorPrintStream = new PrintStream(errorOutputStream, true, StandardCharsets.US_ASCII.toString())) {
+            executor.executeCommand(cmd + "\r\n", outputPrintStream, errorPrintStream);
+            String result = normalOutputStream.toString(StandardCharsets.US_ASCII.name());
+            logger.debug("Command result: " + result);
+            byte[] retBytes = result.getBytes(StandardCharsets.UTF_8);
+            return retBytes;
+        }
     }
 
     @Override
@@ -36,7 +49,7 @@ public class ZeusStateMachine implements StateMachine, RAFT.RoleChange {
 
     @Override
     public void writeContentTo(DataOutput dataOutput) throws Exception {
-        logger.info("Storing sanpshot, skip");
+        logger.info("Storing snapshot, skip");
     }
 
     @Override

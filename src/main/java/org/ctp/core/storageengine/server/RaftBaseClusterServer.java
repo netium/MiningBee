@@ -1,12 +1,11 @@
-package org.ctp.cli;
+package org.ctp.core.storageengine.server;
 
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import org.ctp.core.storageengine.IStorageEngine;
-import org.ctp.core.storageengine.lsm.ZeusStateMachine;
-import org.ctp.core.storageengine.server.ZeusServer;
+import org.ctp.core.storageengine.server.smr.ZeusStateMachine;
 import org.ctp.network.telnet.RaftBaseServerInitializer;
 import org.jgroups.JChannel;
 import org.jgroups.raft.RaftHandle;

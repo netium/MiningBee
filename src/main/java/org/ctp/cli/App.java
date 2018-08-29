@@ -7,15 +7,10 @@ import io.netty.channel.socket.nio.NioServerSocketChannel;
 import org.apache.commons.cli.*;
 import org.ctp.core.storageengine.IStorageEngine;
 import org.ctp.core.storageengine.lsm.LsmStorageEngine;
-import org.ctp.core.storageengine.lsm.ZeusStateMachine;
+import org.ctp.core.storageengine.server.RaftBaseClusterServer;
 import org.ctp.network.telnet.TelnetServerInitializer;
-import org.jgroups.JChannel;
-import org.jgroups.protocols.raft.RaftHeader;
-import org.jgroups.raft.RaftHandle;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.io.IOException;
 
 public class App
 {
