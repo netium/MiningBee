@@ -4,6 +4,7 @@ import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import org.apache.commons.cli.*;
 import org.ctp.core.storageengine.IStorageEngine;
 import org.ctp.core.storageengine.lsm.LsmStorageEngine;
 import org.ctp.core.storageengine.lsm.ZeusStateMachine;
@@ -26,11 +27,45 @@ public class App
 
     public static void main( String[] args ) throws Exception {
         App app = new App();
+
+        AppCliParameters appParams = app.parseCommandlines(args);
+
         app.init("./db");
         app.showBanner();
         // app.runCommandLoop();
         // app.runByNetty();
-        app.runByJgroupsRaft(args[0]);
+        app.runByJgroupsRaft(appParams);
+    }
+
+    private AppCliParameters parseCommandlines(String[] args) throws ParseException {
+        Option configurationFileProperty = OptionBuilder.withArgName("file")
+                .hasArg()
+                .withDescription("The cluster configuration file")
+                .create("conf");
+
+        configurationFileProperty.setRequired(true);
+
+        Option serverIdProperty = OptionBuilder.withArgName("serverId")
+                .hasArg()
+                .withDescription("The server ID")
+                .create("serverId");
+
+        serverIdProperty.setRequired(true);
+
+        Options options = new Options();
+
+        options.addOption(configurationFileProperty);
+        options.addOption(serverIdProperty);
+
+
+        CommandLineParser parser = new DefaultParser();
+        CommandLine cmd = parser.parse(options, args);
+
+        AppCliParameters appParams = new AppCliParameters();
+        appParams.setConfigurationFile(cmd.getOptionValue("conf"));
+        appParams.setServerId(cmd.getOptionValue("serverId"));
+
+        return appParams;
     }
 
     private void showBanner() {
@@ -52,10 +87,11 @@ public class App
         executor.execute();
     }
 
-    private void runByJgroupsRaft(String serverId) throws Exception {
-        final String configuration = "/Users/bzhou/Documents/zeus-cluster.xml";
+    private void runByJgroupsRaft(AppCliParameters appParams) throws Exception {
+
+        final String configuration = appParams.getConfigurationFile();
         final String clusterName = "zeus-cluster";
-        RaftBaseClusterServer server = new RaftBaseClusterServer(configuration, serverId, clusterName, storageEngine);
+        RaftBaseClusterServer server = new RaftBaseClusterServer(configuration, appParams.getServerId(), clusterName, storageEngine);
         server.start();
     }
 
