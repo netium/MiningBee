@@ -7,7 +7,9 @@ import io.netty.channel.socket.nio.NioServerSocketChannel;
 import org.apache.commons.cli.*;
 import org.ctp.core.storageengine.IStorageEngine;
 import org.ctp.core.storageengine.lsm.LsmStorageEngine;
-import org.ctp.core.storageengine.server.raft.RaftBaseClusterServer;
+import org.ctp.server.ServerInstanceFactory;
+import org.ctp.server.ZeusServer;
+import org.ctp.server.cluster.raft.RaftBaseClusterServer;
 import org.ctp.network.telnet.TelnetServerInitializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,7 +31,14 @@ public class App
         app.showBanner();
         // app.runCommandLoop();
         // app.runByNetty();
-        app.runByJgroupsRaft(appParams);
+
+        app.run(appParams);
+        // runByJgroupsRaft(appParams);
+    }
+
+    private void run(AppCliParameters appParams) throws Exception {
+        ZeusServer server = ServerInstanceFactory.createServerInstance(appParams, storageEngine);
+        server.start();
     }
 
     private AppCliParameters parseCommandlines(String[] args) throws ParseException {
@@ -47,10 +56,13 @@ public class App
 
         serverIdProperty.setRequired(true);
 
+        Option clusterModeProperty = new Option("cluster", "Whether the server shall run in the cluster mode");
+
         Options options = new Options();
 
         options.addOption(configurationFileProperty);
         options.addOption(serverIdProperty);
+        options.addOption(clusterModeProperty);
 
 
         CommandLineParser parser = new DefaultParser();
@@ -59,12 +71,13 @@ public class App
         AppCliParameters appParams = new AppCliParameters();
         appParams.setConfigurationFile(cmd.getOptionValue("conf"));
         appParams.setServerId(cmd.getOptionValue("serverId"));
+        appParams.setSingle(!cmd.hasOption("cluster"));
 
         return appParams;
     }
 
     private void showBanner() {
-        System.out.println("Welcome to DistKV");
+        System.out.println("Welcome to Zeus, a mini distributed key value storage");
         showEngineDiagnosisInfo();
     }
 
