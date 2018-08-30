@@ -1,5 +1,6 @@
 package org.ctp.cli;
 
+import com.sun.security.ntlm.Server;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -11,8 +12,13 @@ import org.ctp.server.ServerInstanceFactory;
 import org.ctp.server.ZeusServer;
 import org.ctp.server.cluster.raft.RaftBaseClusterServer;
 import org.ctp.network.telnet.TelnetServerInitializer;
+import org.ctp.server.configuration.ServerConfiguration;
+import org.ctp.server.configuration.ServerConfigurationLoadException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.File;
+import java.io.IOException;
 
 public class App
 {
@@ -26,18 +32,23 @@ public class App
         App app = new App();
 
         AppCliParameters appParams = app.parseCommandlines(args);
+        ServerConfiguration configuration = app.loadConfiguration(appParams);
 
         app.init("./db");
         app.showBanner();
         // app.runCommandLoop();
         // app.runByNetty();
 
-        app.run(appParams);
+        app.run(configuration);
         // runByJgroupsRaft(appParams);
     }
 
-    private void run(AppCliParameters appParams) throws Exception {
-        ZeusServer server = ServerInstanceFactory.createServerInstance(appParams, storageEngine);
+    private ServerConfiguration loadConfiguration(AppCliParameters appParams) throws ServerConfigurationLoadException {
+        return ServerConfiguration.loadFromFile(appParams.getConfigurationFile());
+    }
+
+    private void run(ServerConfiguration configuration) throws Exception {
+        ZeusServer server = ServerInstanceFactory.createServerInstance(configuration, storageEngine);
         server.start();
     }
 
@@ -49,29 +60,15 @@ public class App
 
         configurationFileProperty.setRequired(true);
 
-        Option serverIdProperty = OptionBuilder.withArgName("serverId")
-                .hasArg()
-                .withDescription("The server ID")
-                .create("serverId");
-
-        serverIdProperty.setRequired(true);
-
-        Option clusterModeProperty = new Option("cluster", "Whether the server shall run in the cluster mode");
-
         Options options = new Options();
 
         options.addOption(configurationFileProperty);
-        options.addOption(serverIdProperty);
-        options.addOption(clusterModeProperty);
-
 
         CommandLineParser parser = new DefaultParser();
         CommandLine cmd = parser.parse(options, args);
 
         AppCliParameters appParams = new AppCliParameters();
         appParams.setConfigurationFile(cmd.getOptionValue("conf"));
-        appParams.setServerId(cmd.getOptionValue("serverId"));
-        appParams.setSingle(!cmd.hasOption("cluster"));
 
         return appParams;
     }
@@ -93,14 +90,6 @@ public class App
     private void runCommandLoop()  {
         CliCommandLoop executor = new CliCommandLoop(storageEngine, System.in, System.out, System.err);
         executor.execute();
-    }
-
-    private void runByJgroupsRaft(AppCliParameters appParams) throws Exception {
-
-        final String configuration = appParams.getConfigurationFile();
-        final String clusterName = "zeus-cluster";
-        RaftBaseClusterServer server = new RaftBaseClusterServer(configuration, appParams.getServerId(), clusterName, storageEngine);
-        server.start();
     }
 
     private void runByNetty() throws InterruptedException {
