@@ -1,4 +1,4 @@
-package org.ctp.core.storageengine.server;
+package org.ctp.server;
 
 public interface ZeusServer {
     void start() throws Exception;

@@ -1,7 +1,5 @@
-package org.ctp.core.storageengine.server.smr;
+package org.ctp.server.cluster.raft;
 
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelFutureListener;
 import org.ctp.core.storageengine.IStorageEngine;
 import org.ctp.network.telnet.TelnetCommandExecutor;
 import org.jgroups.protocols.raft.RAFT;
