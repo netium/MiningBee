@@ -1,6 +1,7 @@
-package org.ctp.core.storageengine.lsm;
+package org.ctp.server.storageengine.lsm;
 
-import org.ctp.core.storageengine.IStorageEngine;
+import org.ctp.server.configuration.ServerConfiguration;
+import org.ctp.server.storageengine.StorageEngine;
 import org.ctp.util.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,9 +20,9 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Stream;
 
-import static org.ctp.core.storageengine.lsm.DBFilenameUtil.DBFILE_EXTENSION;
+import static org.ctp.server.storageengine.lsm.DBFilenameUtil.DBFILE_EXTENSION;
 
-public class LsmStorageEngine implements IStorageEngine {
+public class LsmStorageEngine implements StorageEngine {
     final Logger logger = LoggerFactory.getLogger(LsmStorageEngine.class);
 
     private static final int ACQUIRE_LOCK_TIMEOUT = 20;
@@ -51,8 +52,8 @@ public class LsmStorageEngine implements IStorageEngine {
     }
 
     @Override
-    public void initEngine(String dbFileFolder) {
-        File dbFolder = new File(dbFileFolder);
+    public void initEngine(ServerConfiguration serverConfiguration) {
+        File dbFolder = new File(serverConfiguration.getDbPath());
         if (!dbFolder.exists()) {
             dbFolder.mkdirs();
         }
@@ -60,7 +61,7 @@ public class LsmStorageEngine implements IStorageEngine {
             throw new LsmStorageEngineException("The path " + dbFileFolder + " is not a directory");
         }
 
-        this.dbFileFolder = dbFileFolder;
+        this.dbFileFolder = serverConfiguration.getDbPath();
 
         buildSegmentInMemIndexList(dbFolder);
 

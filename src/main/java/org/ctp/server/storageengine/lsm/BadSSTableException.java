@@ -1,4 +1,4 @@
-package org.ctp.core.storageengine.lsm;
+package org.ctp.server.storageengine.lsm;
 
 public class BadSSTableException extends RuntimeException {
     static final long serialVersionUID = -7034897190745766939L;

@@ -4,7 +4,7 @@ import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
-import org.ctp.core.storageengine.IStorageEngine;
+import org.ctp.server.storageengine.StorageEngine;
 import org.ctp.server.ZeusServer;
 import org.ctp.network.telnet.RaftBaseServerInitializer;
 import org.jgroups.JChannel;
@@ -15,7 +15,7 @@ import org.slf4j.LoggerFactory;
 public class RaftBaseClusterServer implements ZeusServer {
     private final Logger logger = LoggerFactory.getLogger(RaftBaseClusterServer.class);
 
-    private IStorageEngine storageEngine;
+    private StorageEngine storageEngine;
 
     private String clusterName;
     private String serverId;
@@ -25,7 +25,7 @@ public class RaftBaseClusterServer implements ZeusServer {
     private ZeusStateMachine stateMachine;
 
 
-    public RaftBaseClusterServer(final String configurationPath, final String serverId, final String clusterName, final IStorageEngine storageEngine) throws Exception {
+    public RaftBaseClusterServer(final String configurationPath, final String serverId, final String clusterName, final StorageEngine storageEngine) throws Exception {
         this.storageEngine = storageEngine;
 
         this.clusterName = clusterName;

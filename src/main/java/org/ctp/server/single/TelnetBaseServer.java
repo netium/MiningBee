@@ -4,16 +4,16 @@ import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
-import org.ctp.core.storageengine.IStorageEngine;
+import org.ctp.server.storageengine.StorageEngine;
 import org.ctp.server.ZeusServer;
 import org.ctp.network.telnet.TelnetServerInitializer;
 
 public class TelnetBaseServer implements ZeusServer {
 
-    private IStorageEngine storageEngine;
+    private StorageEngine storageEngine;
     private int port;
 
-    public TelnetBaseServer(final int port, final IStorageEngine storageEngine) {
+    public TelnetBaseServer(final int port, final StorageEngine storageEngine) {
         this.storageEngine = storageEngine;
         this.port = port;
     }

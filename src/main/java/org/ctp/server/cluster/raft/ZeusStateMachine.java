@@ -1,6 +1,6 @@
 package org.ctp.server.cluster.raft;
 
-import org.ctp.core.storageengine.IStorageEngine;
+import org.ctp.server.storageengine.StorageEngine;
 import org.ctp.network.telnet.TelnetCommandExecutor;
 import org.jgroups.protocols.raft.RAFT;
 import org.jgroups.protocols.raft.Role;
@@ -14,10 +14,10 @@ import java.nio.charset.StandardCharsets;
 public class ZeusStateMachine implements StateMachine, RAFT.RoleChange {
     private final Logger logger = LoggerFactory.getLogger(ZeusStateMachine.class);
 
-    private final IStorageEngine storageEngine;
+    private final StorageEngine storageEngine;
     private final TelnetCommandExecutor executor;
 
-    public ZeusStateMachine(final IStorageEngine storageEngine) {
+    public ZeusStateMachine(final StorageEngine storageEngine) {
         this.storageEngine = storageEngine;
         this.executor = new TelnetCommandExecutor(storageEngine);
     }

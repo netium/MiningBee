@@ -7,7 +7,7 @@ import io.netty.handler.codec.DelimiterBasedFrameDecoder;
 import io.netty.handler.codec.Delimiters;
 import io.netty.handler.codec.string.StringDecoder;
 import io.netty.handler.codec.string.StringEncoder;
-import org.ctp.core.storageengine.IStorageEngine;
+import org.ctp.server.storageengine.StorageEngine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,9 +17,9 @@ public class TelnetServerInitializer extends ChannelInitializer<SocketChannel> {
 
     private Logger logger = LoggerFactory.getLogger(TelnetServerInitializer.class);
 
-    private final IStorageEngine storageEngine;
+    private final StorageEngine storageEngine;
 
-    public TelnetServerInitializer(IStorageEngine storageEngine) {
+    public TelnetServerInitializer(StorageEngine storageEngine) {
         this.storageEngine = storageEngine;
     }
 

@@ -1,9 +1,11 @@
-package org.ctp.core.storageengine;
+package org.ctp.server.storageengine;
+
+import org.ctp.server.configuration.ServerConfiguration;
 
 import java.io.Closeable;
 
-public interface IStorageEngine extends Closeable {
-    void initEngine(String dbFileFolder);
+public interface StorageEngine extends Closeable {
+    void initEngine(ServerConfiguration configuration);
     boolean put(String key, String value);
     String read(String key);
     boolean delete(String key);
