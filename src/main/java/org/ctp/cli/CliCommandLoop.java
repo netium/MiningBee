@@ -4,8 +4,8 @@ import org.antlr.v4.runtime.ANTLRInputStream;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.ParseTreeWalker;
-import org.ctp.core.storageengine.IStorageEngine;
-import org.ctp.core.storageengine.lsm.LsmStorageEngine;
+import org.ctp.server.storageengine.StorageEngine;
+import org.ctp.server.storageengine.lsm.LsmStorageEngine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -14,12 +14,12 @@ import java.io.PrintStream;
 import java.util.Scanner;
 
 public class CliCommandLoop {
-    private final IStorageEngine storageEngine;
+    private final StorageEngine storageEngine;
     private final InputStream inputStream;
     private final PrintStream outputPrintStream;
     private final PrintStream errorPrintStream;
 
-    public CliCommandLoop(IStorageEngine storageEngine, InputStream inputStream, PrintStream printStream, PrintStream errorStream) {
+    public CliCommandLoop(StorageEngine storageEngine, InputStream inputStream, PrintStream printStream, PrintStream errorStream) {
         this.storageEngine= storageEngine;
         this.inputStream = inputStream;
         this.outputPrintStream = printStream;

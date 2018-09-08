@@ -1,4 +1,4 @@
-package org.ctp.core.storageengine.lsm;
+package org.ctp.server.storageengine.lsm;
 
 public class AcquireLockTimeoutException extends RuntimeException {
         public AcquireLockTimeoutException() { super(); }

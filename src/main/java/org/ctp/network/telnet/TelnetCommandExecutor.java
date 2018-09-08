@@ -7,8 +7,8 @@ import org.antlr.v4.runtime.tree.ParseTreeWalker;
 import org.ctp.cli.cliBaseListener;
 import org.ctp.cli.cliLexer;
 import org.ctp.cli.cliParser;
-import org.ctp.core.storageengine.IStorageEngine;
-import org.ctp.core.storageengine.lsm.LsmStorageEngine;
+import org.ctp.server.storageengine.StorageEngine;
+import org.ctp.server.storageengine.lsm.LsmStorageEngine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -18,7 +18,7 @@ import java.util.Scanner;
 public class TelnetCommandExecutor extends cliBaseListener {
     private final Logger logger = LoggerFactory.getLogger(TelnetCommandExecutor.class);
 
-    private final IStorageEngine storageEngine;
+    private final StorageEngine storageEngine;
 
     private PrintStream outputPrintStream;
     private PrintStream errorPrintStream;
@@ -29,7 +29,7 @@ public class TelnetCommandExecutor extends cliBaseListener {
         return clientWantExiting;
     }
 
-    public TelnetCommandExecutor(IStorageEngine storageEngine) {
+    public TelnetCommandExecutor(StorageEngine storageEngine) {
         this.storageEngine = storageEngine;
     }
 

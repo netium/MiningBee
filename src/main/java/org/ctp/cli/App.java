@@ -6,25 +6,21 @@ import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import org.apache.commons.cli.*;
-import org.ctp.core.storageengine.IStorageEngine;
-import org.ctp.core.storageengine.lsm.LsmStorageEngine;
+import org.ctp.server.storageengine.StorageEngine;
+import org.ctp.server.storageengine.lsm.LsmStorageEngine;
 import org.ctp.server.ServerInstanceFactory;
 import org.ctp.server.ZeusServer;
-import org.ctp.server.cluster.raft.RaftBaseClusterServer;
 import org.ctp.network.telnet.TelnetServerInitializer;
 import org.ctp.server.configuration.ServerConfiguration;
 import org.ctp.server.configuration.ServerConfigurationLoadException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
-import java.io.IOException;
-
 public class App
 {
     private final Logger logger = LoggerFactory.getLogger(App.class);
 
-    private IStorageEngine storageEngine;
+    private StorageEngine storageEngine;
 
     private Thread networkThread;
 
@@ -34,7 +30,7 @@ public class App
         AppCliParameters appParams = app.parseCommandlines(args);
         ServerConfiguration configuration = app.loadConfiguration(appParams);
 
-        app.init("./db");
+        app.init(configuration);
         app.showBanner();
         // app.runCommandLoop();
         // app.runByNetty();
@@ -82,9 +78,9 @@ public class App
         System.out.println(storageEngine.getDiagnosisInfo());
     }
 
-    private void init(String dbPath) {
+    private void init(ServerConfiguration configuration) {
         storageEngine = new LsmStorageEngine();
-        storageEngine.initEngine(dbPath);
+        storageEngine.initEngine(configuration);
     }
 
     private void runCommandLoop()  {

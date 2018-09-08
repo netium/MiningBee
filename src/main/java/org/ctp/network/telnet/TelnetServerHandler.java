@@ -4,7 +4,7 @@ import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
-import org.ctp.core.storageengine.IStorageEngine;
+import org.ctp.server.storageengine.StorageEngine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -18,7 +18,7 @@ public class TelnetServerHandler extends SimpleChannelInboundHandler<String> {
 
     private final TelnetCommandExecutor executor;
 
-    public TelnetServerHandler(IStorageEngine storageEngine) {
+    public TelnetServerHandler(StorageEngine storageEngine) {
         executor = new TelnetCommandExecutor(storageEngine);
     }
 
