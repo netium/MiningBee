@@ -5,7 +5,7 @@ import org.ctp.server.configuration.ServerConfiguration;
 import java.io.Closeable;
 
 public interface StorageEngine extends Closeable {
-    void initEngine(ServerConfiguration configuration);
+    void start();
     boolean put(String key, String value);
     String read(String key);
     boolean delete(String key);

@@ -1,7 +1,7 @@
 package org.ctp.server.storageengine.lsm;
 
 import org.ctp.server.configuration.ServerConfiguration;
-import org.ctp.server.storageengine.StorageEngine;
+import org.ctp.server.storageengine.AbstractStorageEngine;
 import org.ctp.util.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,7 +22,7 @@ import java.util.stream.Stream;
 
 import static org.ctp.server.storageengine.lsm.DBFilenameUtil.DBFILE_EXTENSION;
 
-public class LsmStorageEngine implements StorageEngine {
+public class LsmStorageEngine extends AbstractStorageEngine {
     final Logger logger = LoggerFactory.getLogger(LsmStorageEngine.class);
 
     private static final int ACQUIRE_LOCK_TIMEOUT = 20;
@@ -46,13 +46,11 @@ public class LsmStorageEngine implements StorageEngine {
 
     private WriteAheadLog writeAheadLog = null;
 
-    public LsmStorageEngine() {
+    public LsmStorageEngine(ServerConfiguration serverConfiguration) {
+        super(serverConfiguration);
         currentMemtableARef = new AtomicReference<>();
         currentMemtableARef.set(new Memtable());
-    }
 
-    @Override
-    public void initEngine(ServerConfiguration serverConfiguration) {
         File dbFolder = new File(serverConfiguration.getDbPath());
         if (!dbFolder.exists()) {
             dbFolder.mkdirs();
@@ -62,8 +60,11 @@ public class LsmStorageEngine implements StorageEngine {
         }
 
         this.dbFileFolder = serverConfiguration.getDbPath();
+    }
 
-        buildSegmentInMemIndexList(dbFolder);
+    @Override
+    public void start() {
+        buildSegmentInMemIndexList(new File(this.dbFileFolder));
 
         compactAndMergeThread = new Thread(new SSTableCompactor());
         compactAndMergeThread.start();

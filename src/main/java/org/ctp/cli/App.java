@@ -1,6 +1,5 @@
 package org.ctp.cli;
 
-import com.sun.security.ntlm.Server;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -79,8 +78,8 @@ public class App
     }
 
     private void init(ServerConfiguration configuration) {
-        storageEngine = new LsmStorageEngine();
-        storageEngine.initEngine(configuration);
+        storageEngine = new LsmStorageEngine(configuration);
+        storageEngine.start();
     }
 
     private void runCommandLoop()  {
