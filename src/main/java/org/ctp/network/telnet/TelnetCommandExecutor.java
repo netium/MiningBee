@@ -8,17 +8,24 @@ import org.ctp.cli.cliBaseListener;
 import org.ctp.cli.cliLexer;
 import org.ctp.cli.cliParser;
 import org.ctp.server.storageengine.StorageEngine;
+import org.ctp.server.storageengine.command.CommandResult;
+import org.ctp.server.storageengine.command.ResultHandler;
+import org.ctp.server.storageengine.command.ResultStatus;
 import org.ctp.server.storageengine.lsm.LsmStorageEngine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.PrintStream;
+import java.util.Queue;
 import java.util.Scanner;
+import java.util.concurrent.LinkedBlockingQueue;
 
 public class TelnetCommandExecutor extends cliBaseListener {
     private final Logger logger = LoggerFactory.getLogger(TelnetCommandExecutor.class);
 
     private final StorageEngine storageEngine;
+
+    private LinkedBlockingQueue<CommandResult> commandResultQueue = new LinkedBlockingQueue<CommandResult>();
 
     private PrintStream outputPrintStream;
     private PrintStream errorPrintStream;
@@ -52,35 +59,38 @@ public class TelnetCommandExecutor extends cliBaseListener {
     public void exitPut_command(cliParser.Put_commandContext ctx) {
         if (ctx.exception != null)
             return;
-        boolean ret = storageEngine.put(ctx.KEYSTRING().getText(), normalizeValueString(ctx.VALUESTRING().getText()));
-        if (ret) outputPrintStream.println("Succeeded");
-        else outputPrintStream.println("Failed");
+        storageEngine.put(ctx.KEYSTRING().getText(), normalizeValueString(ctx.VALUESTRING().getText()),
+                new ExecutorCommandResultHandler());
+        processCommandResult();
     }
 
     @Override
     public void exitGet_command(cliParser.Get_commandContext ctx) {
         if (ctx.exception != null)
             return;
-        String value = storageEngine.read(ctx.KEYSTRING().getText());
-        outputPrintStream.println("Value: " + value);
+        storageEngine.read(ctx.KEYSTRING().getText(), new ExecutorCommandResultHandler());
+        processCommandResult();
     }
 
     @Override
     public void exitDelete_command(cliParser.Delete_commandContext ctx) {
         if (ctx.exception != null)
             return;
-        boolean ret = storageEngine.delete(ctx.KEYSTRING().getText());
-        if (ret) outputPrintStream.println("Succeeded");
-        else outputPrintStream.println("Failed");
+        storageEngine.delete(ctx.KEYSTRING().getText(), new ExecutorCommandResultHandler());
+        processCommandResult();
     }
 
     @Override
     public void exitCas_command(cliParser.Cas_commandContext ctx) {
         if (ctx.exception != null)
             return;
-        boolean ret = storageEngine.compareAndSet(ctx.KEYSTRING().getText(), normalizeValueString(ctx.VALUESTRING(0).getText()), normalizeValueString(ctx.VALUESTRING(1).getText()));
-        if (ret) outputPrintStream.println("Succeeded");
-        else outputPrintStream.println("Failed");
+        storageEngine.compareAndSet(
+                ctx.KEYSTRING().getText(),
+                normalizeValueString(ctx.VALUESTRING(0).getText()),
+                normalizeValueString(ctx.VALUESTRING(1).getText()),
+            new ExecutorCommandResultHandler()
+        );
+        processCommandResult();
     }
 
     @Override
@@ -89,9 +99,8 @@ public class TelnetCommandExecutor extends cliBaseListener {
             return;
         if (storageEngine instanceof LsmStorageEngine) {
             LsmStorageEngine lsmEngine = (LsmStorageEngine) storageEngine;
-            boolean ret = lsmEngine.flush();
-            if (ret) outputPrintStream.println("Succeeded");
-            else outputPrintStream.println("Failed");
+            lsmEngine.flush(new ExecutorCommandResultHandler());
+            processCommandResult();
         }
     }
 
@@ -99,7 +108,8 @@ public class TelnetCommandExecutor extends cliBaseListener {
     public void exitEngine_command(cliParser.Engine_commandContext ctx) {
         if (ctx.exception != null)
             return;
-        outputPrintStream.println(storageEngine.getDiagnosisInfo());
+        storageEngine.getDiagnosisInfo(new ExecutorCommandResultHandler());
+        processCommandResult();
     }
 
     @Override
@@ -116,5 +126,39 @@ public class TelnetCommandExecutor extends cliBaseListener {
         sb.deleteCharAt(sb.length() - 1);
         sb.deleteCharAt(0);
         return sb.toString();
+    }
+
+    private void processCommandResult() {
+        try {
+            CommandResult commandResult = commandResultQueue.take();
+            if (commandResult.getStatus() == ResultStatus.OK) {
+                outputPrintStream.println("Succeeded");
+                if (commandResult.getReturnValue() != null) {
+                    outputPrintStream.println("Value: " + commandResult.getReturnValue());
+                }
+            } else if (commandResult.getStatus() == ResultStatus.FAILED) {
+                outputPrintStream.println("Failed");
+            } else if (commandResult.getStatus() == ResultStatus.OVERLOAD) {
+                outputPrintStream.println("Server overloaded");
+            } else if (commandResult.getStatus() == ResultStatus.NO_SUPPORTED) {
+                outputPrintStream.println("The command is not supported");
+            } else if (commandResult.getStatus() == ResultStatus.ERROR) {
+                outputPrintStream.println("The server meet an error: ");
+                outputPrintStream.println(commandResult.getErrorCause().toString());
+                outputPrintStream.println(commandResult.getErrorCause().getStackTrace());
+            } else {
+                outputPrintStream.println("Unknown command result code detected");
+            }
+        }
+        catch (InterruptedException e) {
+            outputPrintStream.println("Thread is interrupted");
+        }
+    }
+
+    private final class ExecutorCommandResultHandler implements ResultHandler {
+        @Override
+        public void handle(CommandResult result) {
+            commandResultQueue.offer(result);
+        }
     }
 }

@@ -2,6 +2,7 @@ package org.ctp.server.storageengine.lsm;
 
 import org.ctp.server.configuration.ServerConfiguration;
 import org.ctp.server.storageengine.AbstractStorageEngine;
+import org.ctp.server.storageengine.command.*;
 import org.ctp.util.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,6 +14,7 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Queue;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
@@ -30,6 +32,9 @@ public class LsmStorageEngine extends AbstractStorageEngine {
 
     private static final int MEMTABLE_THRESHOLD = 1 * 1024;
 
+    private LinkedBlockingQueue<Command> commandQueryQueue = new LinkedBlockingQueue<Command>();
+
+    private Thread commandQueryThread = null;
     private Thread compactAndMergeThread = null;
     private ExecutorService executorService = Executors.newFixedThreadPool(1);
 
@@ -72,122 +77,74 @@ public class LsmStorageEngine extends AbstractStorageEngine {
         initWriteAheadLog();
 
         replayWriteAheadLog();
+
+        commandQueryThread = new Thread(() -> processCommands());
+        commandQueryThread.start();
     }
 
     @Override
-    public boolean put(String key, String value) {
-        try {
-            if (key == null || key.length() == 0) {
-                throw new IllegalArgumentException();
-            }
-            if (value == null || value.length() == 0) {
-                throw new IllegalArgumentException();
-            }
-
-            Memtable currentMemtable = this.currentMemtableARef.get();
-
-            writeAheadLog.appendItem(key, value);
-            currentMemtable.put(key, value);
-            if (currentMemtable.getRawDataSize() >= MEMTABLE_THRESHOLD) {
-                createSSTable();
-            }
-
-            return true;
-        } catch (Exception e) {
-            System.out.println(e);
-            e.printStackTrace();
-            return false;
+    public void put(String key, String value, ResultHandler resultHandler) {
+        PutCommand command = new PutCommand(key, value, resultHandler);
+        if (!commandQueryQueue.offer(command)) {
+            resultHandler.handle(
+                    new CommandResult(ResultStatus.OVERLOAD, null, null)
+            );
         }
     }
 
     @Override
-    public String read(String key) {
-        try {
-            Memtable currentMemtable = this.currentMemtableARef.get();
-            Memtable flushingMemtable = this.flushingMemtableARef.get();
-
-            if (currentMemtable.containsKey(key))
-                return currentMemtable.get(key);
-            else if (flushingMemtable != null && flushingMemtable.containsKey(key))
-                return flushingMemtable.get(key);
-            else {
-                for (InMemIndex indexCache : segmentInMemIndexList) {
-                    if (indexCache.contains(key)) {
-                        return indexCache.get(key);
-                    }
-                }
-            }
-            return null;
-        } catch (Exception e) {
-            System.out.println(e);
-            e.printStackTrace();
-            return null;
+    public void read(String key, ResultHandler resultHandler) {
+        GetCommand command = new GetCommand(key, resultHandler);
+        if (!commandQueryQueue.offer(command)) {
+            resultHandler.handle(
+                    new CommandResult(ResultStatus.OVERLOAD, null, null)
+            );
         }
     }
 
     @Override
-    public boolean delete(String key) {
-        try {
-            Memtable currentMemtable = currentMemtableARef.get();
-            writeAheadLog.appendItem(key, null);
-            currentMemtable.delete(key);
-            if (currentMemtable.getRawDataSize() >= MEMTABLE_THRESHOLD) {
-                createSSTable();
-            }
-            return true;
-        } catch (Exception e) {
-            System.out.println(e);
-            e.printStackTrace();
-            return false;
+    public void delete(String key, ResultHandler resultHandler) {
+        DeleteCommand command = new DeleteCommand(key, resultHandler);
+        if (!commandQueryQueue.offer(command)) {
+            resultHandler.handle(
+                    new CommandResult(ResultStatus.OVERLOAD, null, null)
+            );
         }
     }
 
     @Override
-    public boolean compareAndSet(String key, String oldValue, String newValue) {
-        if (key == null)
-            throw new IllegalArgumentException();
-        if (oldValue == null)
-            throw new IllegalArgumentException();
-        if (newValue == null)
-            throw new IllegalArgumentException();
-
-        String value = read(key);
-        if (!oldValue.equals(value))
-            return false;
-        put(key, newValue);
-        return true;
+    public void compareAndSet(String key, String oldValue, String newValue, ResultHandler resultHandler) {
+        CompareAndSetCommand command = new CompareAndSetCommand(key, oldValue, newValue, resultHandler);
+        if (!commandQueryQueue.offer(command)) {
+            resultHandler.handle(
+                    new CommandResult(ResultStatus.OVERLOAD, null, null)
+            );
+        }
     }
 
     @Override
-    public String getDiagnosisInfo() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("Engine class: " + getClass().getName() + "\n");
-        sb.append("Database file folder: " + dbFileFolder + "\n");
-        sb.append("In memory index tables: " + "\n");
-        for (InMemIndex inMemIndex : segmentInMemIndexList) {
-            sb.append("\t SSTable: " + inMemIndex.getSSTable().getFilename() + "\n");
+    public void getDiagnosisInfo(ResultHandler resultHandler) {
+        GetEngineInfoCommand command = new GetEngineInfoCommand(resultHandler);
+        if (!commandQueryQueue.offer(command)) {
+            resultHandler.handle(
+                    new CommandResult(ResultStatus.OVERLOAD, null, null)
+            );
         }
-        if (segmentInMemIndexList.size() == 0) {
-            sb.append("\n");
-        }
+    }
 
-        return sb.toString();
+    @Override
+    public void flush(ResultHandler resultHandler) {
+        FlushCommand command = new FlushCommand(resultHandler);
+        if (!commandQueryQueue.offer(command)) {
+            resultHandler.handle(
+                    new CommandResult(ResultStatus.OVERLOAD, null, null)
+            );
+        }
     }
 
     @Override
     public void close() throws IOException {
         createSSTable();
-    }
-
-    public boolean flush() {
-        try {
-            createSSTable();
-            return true;
-        } catch (Exception e) {
-            logger.error(e.toString());
-            logger.error(e.getStackTrace().toString());
-            return false;
-        }
     }
 
     private void createSSTable() {
@@ -207,8 +164,6 @@ public class LsmStorageEngine extends AbstractStorageEngine {
     private Path generateSSTablePath() {
         return Paths.get(dbFileFolder, DBFilenameUtil.generateNewSSTableDBName());
     }
-
-
 
     private void removeSSTables(ArrayList<InMemIndex> oldIndexList) {
         for (InMemIndex index : oldIndexList) {
@@ -322,7 +277,6 @@ public class LsmStorageEngine extends AbstractStorageEngine {
         logger.info("Finish flushing memtable to " + sstableFilePath.toString());
     }
 
-
     private void compactAndMerge() throws InterruptedException {
         if (!isMergeAndCompactNeed()) {
             logger.info("The merge-n-compact criteria is not reached, skip");
@@ -409,6 +363,167 @@ public class LsmStorageEngine extends AbstractStorageEngine {
         }
         finally {
             lock.unlock();
+        }
+    }
+
+    private void processCommands() {
+        logger.info("Start to listen to command queue and processing the command");
+        while(true) {
+            try {
+                Command command = commandQueryQueue.take();
+                if (command instanceof GetCommand) {
+                    processQueryCommand((GetCommand) command);
+                } else if (command instanceof DeleteCommand) {
+                    processDeleteCommand((DeleteCommand) command);
+                } else if (command instanceof PutCommand) {
+                    processPutCommand((PutCommand) command);
+                } else if (command instanceof CompareAndSetCommand) {
+                    processCompareAndSetCommand((CompareAndSetCommand) command);
+                } else if (command instanceof FlushCommand) {
+                    processFlushCommand((FlushCommand) command);
+                } else if (command instanceof GetEngineInfoCommand) {
+                    processGetEngineInfoCommand((GetEngineInfoCommand) command);
+                }
+            }
+            catch (InterruptedException e) {
+                break;
+            }
+        }
+    }
+
+    private void processQueryCommand(final GetCommand command) {
+        String key = command.getKey();
+        try {
+            Memtable currentMemtable = this.currentMemtableARef.get();
+            Memtable flushingMemtable = this.flushingMemtableARef.get();
+
+            if (currentMemtable.containsKey(key)) {
+                command.getResultHandler().handle(
+                        new CommandResult(ResultStatus.OK, currentMemtable.get(key), null)
+                );
+            }
+            else if (flushingMemtable != null && flushingMemtable.containsKey(key)) {
+                command.getResultHandler().handle(
+                        new CommandResult(ResultStatus.OK, flushingMemtable.get(key), null)
+                );
+            }
+            else {
+                for (InMemIndex indexCache : segmentInMemIndexList) {
+                    if (indexCache.contains(key)) {
+                        command.getResultHandler().handle(
+                                new CommandResult(ResultStatus.OK, indexCache.get(key), null)
+                        );
+                    }
+                }
+            }
+            command.getResultHandler().handle(
+                    new CommandResult(ResultStatus.FAILED, null, null)
+            );
+        } catch (Throwable e) {
+            logger.error(e.toString());
+            logger.error(e.getStackTrace().toString());
+            command.getResultHandler().handle(
+                    new CommandResult(ResultStatus.ERROR, null, e)
+            );
+        }
+    }
+
+    private void processDeleteCommand(final DeleteCommand command) {
+        final String key = command.getKey();
+        try {
+            Memtable currentMemtable = currentMemtableARef.get();
+            writeAheadLog.appendItem(key, null);
+            currentMemtable.delete(key);
+            if (currentMemtable.getRawDataSize() >= MEMTABLE_THRESHOLD) {
+                createSSTable();
+            }
+            command.getResultHandler().handle(
+                    new CommandResult(ResultStatus.OK, null, null)
+            );
+        } catch (Throwable e) {
+            logger.error(e.toString());
+            logger.error(e.getStackTrace().toString());
+            command.getResultHandler().handle(
+                    new CommandResult(ResultStatus.ERROR, null, e)
+            );
+        }
+    }
+
+    private void processPutCommand(final PutCommand command) {
+        final String key = command.getKey();
+        final String value = command.getValue();
+        try {
+            if (key == null || key.length() == 0) {
+                throw new IllegalArgumentException();
+            }
+            if (value == null || value.length() == 0) {
+                throw new IllegalArgumentException();
+            }
+
+            Memtable currentMemtable = this.currentMemtableARef.get();
+
+            writeAheadLog.appendItem(key, value);
+            currentMemtable.put(key, value);
+            if (currentMemtable.getRawDataSize() >= MEMTABLE_THRESHOLD) {
+                createSSTable();
+            }
+
+            command.getResultHandler().handle(
+                    new CommandResult(ResultStatus.OK, value, null)
+            );
+        } catch (Throwable e) {
+            logger.error(e.toString());
+            logger.error(e.getStackTrace().toString());
+            command.getResultHandler().handle(
+                    new CommandResult(ResultStatus.ERROR, null, e)
+            );
+        }
+    }
+
+    private void processCompareAndSetCommand(final CompareAndSetCommand command) {
+        command.getResultHandler().handle(
+                new CommandResult(ResultStatus.NO_SUPPORTED, null, null)
+        );
+    }
+
+    private void processFlushCommand(final FlushCommand command) {
+        try {
+            createSSTable();
+            command.getResultHandler().handle(
+                    new CommandResult(ResultStatus.OK, null, null)
+            );
+        } catch (Throwable e) {
+            logger.error(e.toString());
+            logger.error(e.getStackTrace().toString());
+            command.getResultHandler().handle(
+                    new CommandResult(ResultStatus.ERROR, null, e)
+            );
+        }
+    }
+
+    private void processGetEngineInfoCommand(GetEngineInfoCommand command) {
+        try {
+            StringBuilder sb = new StringBuilder();
+            sb.append("Engine class: " + getClass().getName() + "\n");
+            sb.append("Database file folder: " + dbFileFolder + "\n");
+            sb.append("In memory index tables: " + "\n");
+            for (InMemIndex inMemIndex : segmentInMemIndexList) {
+                sb.append("\t SSTable: " + inMemIndex.getSSTable().getFilename() + "\n");
+            }
+            if (segmentInMemIndexList.size() == 0) {
+                sb.append("\n");
+            }
+
+            command.getResultHandler().handle(
+                    new CommandResult(ResultStatus.OK, sb.toString(), null)
+            );
+        }
+        catch (Throwable e) {
+            logger.error(e.toString());
+            logger.error(e.getStackTrace().toString());
+            command.getResultHandler().handle(
+                    new CommandResult(ResultStatus.ERROR, null, e)
+            );
         }
     }
 
