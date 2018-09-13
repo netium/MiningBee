@@ -74,17 +74,12 @@ public class App
     }
 
     private void showEngineDiagnosisInfo() {
-        System.out.println(storageEngine.getDiagnosisInfo());
+        storageEngine.getDiagnosisInfo(p->System.out.println(p.getReturnValue()));
     }
 
     private void init(ServerConfiguration configuration) {
-        storageEngine = new LsmStorageEngine();
-        storageEngine.initEngine(configuration);
-    }
-
-    private void runCommandLoop()  {
-        CliCommandLoop executor = new CliCommandLoop(storageEngine, System.in, System.out, System.err);
-        executor.execute();
+        storageEngine = new LsmStorageEngine(configuration);
+        storageEngine.start();
     }
 
     private void runByNetty() throws InterruptedException {
