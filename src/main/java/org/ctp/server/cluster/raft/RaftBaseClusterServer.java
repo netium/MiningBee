@@ -4,6 +4,7 @@ import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import org.ctp.server.configuration.ServerConfiguration;
 import org.ctp.server.storageengine.StorageEngine;
 import org.ctp.server.ZeusServer;
 import org.ctp.network.telnet.RaftBaseServerInitializer;
@@ -24,8 +25,16 @@ public class RaftBaseClusterServer implements ZeusServer {
     private RaftHandle raftHandle;
     private ZeusStateMachine stateMachine;
 
+    private ServerConfiguration serverConfiguration;
 
-    public RaftBaseClusterServer(final String configurationPath, final String serverId, final String clusterName, final StorageEngine storageEngine) throws Exception {
+
+    public RaftBaseClusterServer(final ServerConfiguration serverConfiguration, final StorageEngine storageEngine) throws Exception {
+        this.serverConfiguration = serverConfiguration;
+
+        final String configurationPath = serverConfiguration.getCluster().get("conf"),
+        serverId = serverConfiguration.getCluster().get("serverId");
+        clusterName = serverConfiguration.getCluster().get("clusterName");
+
         this.storageEngine = storageEngine;
 
         this.clusterName = clusterName;
@@ -45,7 +54,7 @@ public class RaftBaseClusterServer implements ZeusServer {
     }
 
     private void runByNetty() throws InterruptedException {
-        final int PORT = 18889;
+        final int PORT = Integer.parseInt(serverConfiguration.getCluster().get("port"));
 
         logger.info("Activate the netty on port: " + PORT);
 

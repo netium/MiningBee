@@ -1,11 +1,12 @@
 # Zeus server configuration
 ---
-mode: single
+mode: cluster
 dbPath: ./db
 cluster:
-  conf: ./zeus-cluster.xml
+  conf: ./conf/zeus-cluster.xml
   serverId: A
   clusterName: zeus-cluster
+  port: 18889
 single:
   port: 18889
 

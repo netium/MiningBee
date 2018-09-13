@@ -17,9 +17,7 @@ public final class ServerInstanceFactory {
 
     private static ZeusServer createClusterServerInstance(final ServerConfiguration serverConfiguration, StorageEngine storageEngine) throws Exception {
         ZeusServer server = new RaftBaseClusterServer(
-                serverConfiguration.getCluster().get("conf"),
-                serverConfiguration.getCluster().get("serverId"),
-                serverConfiguration.getCluster().get("clusterName"),
+                serverConfiguration,
                 storageEngine);
         return server;
     }
