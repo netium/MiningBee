@@ -72,6 +72,13 @@
       <artifactId>commons-lang3</artifactId>
       <version>3.8</version>
     </dependency>
+
+    <!-- Using the bloomfilter in the Guava lib -->
+    <dependency>
+      <groupId>com.google.guava</groupId>
+      <artifactId>guava</artifactId>
+      <version>26.0-jre</version>
+    </dependency>
   </dependencies>
 
   <build>

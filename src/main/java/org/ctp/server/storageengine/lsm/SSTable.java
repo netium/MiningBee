@@ -1,9 +1,12 @@
 package org.ctp.server.storageengine.lsm;
 
+import com.google.common.hash.BloomFilter;
+import com.google.common.hash.Funnels;
 import org.ctp.util.Pair;
 
 import java.io.*;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.Iterator;
 
@@ -12,12 +15,15 @@ public class SSTable implements Iterable<Pair<String, Long>> {
 
     private final String filename;
 
+    private BloomFilter<String> filter;
+
     public String getFilename() {
         return filename;
     }
 
     public SSTable(String sstableFilename) {
         filename = sstableFilename;
+        filter = BloomFilter.create(Funnels.stringFunnel(StandardCharsets.UTF_8), 500, 0.1);
     }
 
     public static SSTable flush(Memtable memtable, String sstableFilename) throws IOException {
