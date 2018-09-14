@@ -1,8 +1,6 @@
 package org.ctp.server.storageengine.lsm.sstable;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.*;
 import java.nio.charset.StandardCharsets;
 
 public class SSTableDescriptor {
@@ -12,6 +10,21 @@ public class SSTableDescriptor {
     private final static byte MINOR_VER = 0;
 
     private final static int DESCRIPTOR_SIZE = MAGIC.length + Byte.BYTES + Byte.BYTES; // Magic + majorVer + minorVer
+
+    public static boolean isValidDescriptor(DataInput dataInput) throws IOException {
+        if (dataInput == null)
+            throw new IllegalArgumentException("The dataInput is null");
+
+        for (int i = 0; i < MAGIC.length; i++) {
+            if (dataInput.readByte() != MAGIC[i])
+                return false;
+        }
+
+        if (dataInput.readByte() != MAJOR_VER) return false;
+        if (dataInput.readByte() != MINOR_VER) return false;
+
+        return true;
+    }
 
     public static boolean isValidDescriptor(byte[] buf, int start) {
         if (buf == null)
@@ -31,28 +44,13 @@ public class SSTableDescriptor {
         return true;
     }
 
-    public static boolean isValidDescriptor(InputStream inputStream) throws IOException {
-        if (inputStream == null)
-            throw new IllegalArgumentException("The inputStream is null");
-
-        for (int i = 0; i < MAGIC.length; i++) {
-            if (inputStream.read() != MAGIC[i])
-                return false;
-        }
-
-        if (inputStream.read() != MAJOR_VER) return false;
-        if (inputStream.read() != MINOR_VER) return false;
-
-        return true;
-    }
-
-    public static int writeSSTableDescriptor(OutputStream outputStream) throws IOException {
-        if (outputStream == null)
+    public static int writeSSTableDescriptor(DataOutput dataOutput) throws IOException {
+        if (dataOutput == null)
             throw new IllegalArgumentException("The outputStream is null");
 
-        outputStream.write(MAGIC);
-        outputStream.write(MAJOR_VER);
-        outputStream.write(MINOR_VER);
+        dataOutput.write(MAGIC);
+        dataOutput.writeByte(MAJOR_VER);
+        dataOutput.writeByte(MINOR_VER);
 
         return DESCRIPTOR_SIZE;
     }

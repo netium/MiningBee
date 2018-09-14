@@ -5,6 +5,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 
 public class SSTableDescriptorTest {
@@ -12,7 +13,8 @@ public class SSTableDescriptorTest {
     @Test
     public void testWriteSSTableDescriptor() throws IOException {
         ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-        SSTableDescriptor.writeSSTableDescriptor(byteArrayOutputStream);
+        DataOutputStream dataOutputStream = new DataOutputStream(byteArrayOutputStream);
+        SSTableDescriptor.writeSSTableDescriptor(dataOutputStream);
 
         byte[] buf = byteArrayOutputStream.toByteArray();
 
@@ -45,7 +47,8 @@ public class SSTableDescriptorTest {
     @Test
     public void testWriteAndThenValid() throws IOException {
         ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-        SSTableDescriptor.writeSSTableDescriptor(byteArrayOutputStream);
+        DataOutputStream dataOutputStream = new DataOutputStream(byteArrayOutputStream);
+        SSTableDescriptor.writeSSTableDescriptor(dataOutputStream);
         byte[] buf = byteArrayOutputStream.toByteArray();
         boolean ret = SSTableDescriptor.isValidDescriptor(buf, 0);
         Assert.assertTrue(ret);

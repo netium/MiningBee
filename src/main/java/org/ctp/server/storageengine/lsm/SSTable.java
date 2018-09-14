@@ -2,6 +2,7 @@ package org.ctp.server.storageengine.lsm;
 
 import com.google.common.hash.BloomFilter;
 import com.google.common.hash.Funnels;
+import org.ctp.server.storageengine.lsm.sstable.BadSSTableException;
 import org.ctp.util.Pair;
 
 import java.io.*;
