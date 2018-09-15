@@ -56,6 +56,10 @@ public class NewSSTable implements AutoCloseable, Iterable<Pair<String, String>>
 
     }
 
+    public File getFile() {
+        return file;
+    }
+
     public Pair<String, String> get(String key) throws IOException {
         if (key == null)
             throw new IllegalArgumentException("The key is null");

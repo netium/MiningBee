@@ -36,7 +36,8 @@ public class SSTableReadWriteTest {
                 new Pair("b", "testb")
         );
 
-        NewSSTable table = creator.flush();
+        creator.close();
+        NewSSTable table = new NewSSTable(file);
         Assert.assertEquals(table.get("b").getKey(), "b");
         Assert.assertEquals(table.get("b").getValue(), "testb");
 

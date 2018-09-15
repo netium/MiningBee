@@ -3,6 +3,9 @@ package org.ctp.server.storageengine.lsm;
 import org.ctp.server.configuration.ServerConfiguration;
 import org.ctp.server.storageengine.AbstractStorageEngine;
 import org.ctp.server.storageengine.command.*;
+import org.ctp.server.storageengine.lsm.sstable.NewSSTable;
+import org.ctp.server.storageengine.lsm.sstable.SSTableCreator;
+import org.ctp.server.storageengine.lsm.sstable.SSTableSequenceReader;
 import org.ctp.util.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,7 +17,6 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Queue;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
@@ -42,7 +44,7 @@ public class LsmStorageEngine extends AbstractStorageEngine {
     private final Lock inMemIndexListUpdateLock = inMemIndexListLock.writeLock();
     private final Lock inMemIndexListReadLock = inMemIndexListLock.readLock();
 
-    private CopyOnWriteArrayList<InMemIndex> segmentInMemIndexList = new CopyOnWriteArrayList<>();
+    private CopyOnWriteArrayList<NewSSTable> sstables = new CopyOnWriteArrayList<>();
 
     private String dbFileFolder;
 
@@ -69,17 +71,21 @@ public class LsmStorageEngine extends AbstractStorageEngine {
 
     @Override
     public void start() {
-        buildSegmentInMemIndexList(new File(this.dbFileFolder));
+        try {
+            buildSegmentInMemIndexList(new File(this.dbFileFolder));
 
-        compactAndMergeThread = new Thread(new SSTableCompactor());
-        compactAndMergeThread.start();
+            compactAndMergeThread = new Thread(new SSTableCompactor());
+            compactAndMergeThread.start();
 
-        initWriteAheadLog();
+            initWriteAheadLog();
 
-        replayWriteAheadLog();
+            replayWriteAheadLog();
 
-        commandQueryThread = new Thread(() -> processCommands());
-        commandQueryThread.start();
+            commandQueryThread = new Thread(() -> processCommands());
+            commandQueryThread.start();
+        } catch (Exception e) {
+            throw new LsmStorageEngineException("The LSM storage engine cannot start.", e);
+        }
     }
 
     @Override
@@ -152,7 +158,7 @@ public class LsmStorageEngine extends AbstractStorageEngine {
         if (currentMemtable.size() == 0)
             return;
 
-        while (!this.flushingMemtableARef.compareAndSet(null, currentMemtable));
+        while (!this.flushingMemtableARef.compareAndSet(null, currentMemtable)) ;
 
         this.currentMemtableARef.set(new Memtable());
 
@@ -165,14 +171,15 @@ public class LsmStorageEngine extends AbstractStorageEngine {
         return Paths.get(dbFileFolder, DBFilenameUtil.generateNewSSTableDBName());
     }
 
-    private void removeSSTables(ArrayList<InMemIndex> oldIndexList) {
-        for (InMemIndex index : oldIndexList) {
-            File file = new File(index.getSSTable().getFilename());
-            file.delete();
+    private void removeSSTables(ArrayList<NewSSTable> oldIndexList) throws Exception {
+        for (NewSSTable index : oldIndexList) {
+            index.close();
+            logger.info("Delete sstable: {}" , index.getFile());
+            index.getFile().delete();
         }
     }
 
-    private void mergeSSTables(ArrayList<SSTable.SSTableSequenceReader> readers, SSTable.SSTableWriter ssTableWriter) throws IOException {
+    private void mergeSSTables(ArrayList<SSTableSequenceReader> readers, SSTableCreator ssTableWriter) throws IOException {
         for (int i = readers.size() - 1; i >= 0; i--) {
             if (readers.get(i).isEof())
                 readers.remove(i);
@@ -194,11 +201,11 @@ public class LsmStorageEngine extends AbstractStorageEngine {
                         Pair<String, String> pair = readers.get(i).read();
                         if (pair.getValue() != null) {
                             logger.debug("Write <{}, {}>", pair.getKey(), pair.getValue());
-                            ssTableWriter.append(pair.getKey(), pair.getValue());
+                            ssTableWriter.write(pair);
                         }
                         minKeyWritten = true;
                     } else {
-                        readers.get(i).skipItem();
+                        readers.get(i).read();
                     }
                 }
             }
@@ -218,10 +225,10 @@ public class LsmStorageEngine extends AbstractStorageEngine {
         }
     }
 
-    private void buildSegmentInMemIndexList(File folder) {
+    private void buildSegmentInMemIndexList(File folder) throws IOException {
         File[] dbFiles = readSegmentFileInDesOrder(folder);
         for (File dbFile : dbFiles) {
-            segmentInMemIndexList.add(new InMemIndex(new SSTable(dbFile.getAbsolutePath())));
+            sstables.add(new NewSSTable(dbFile));
         }
     }
 
@@ -252,17 +259,20 @@ public class LsmStorageEngine extends AbstractStorageEngine {
     private void flushMemTable(final Path sstableFilePath) {
         Marker marker = MarkerFactory.getMarker("FLUSHMEMTABLE");
 
-        SSTable ssTable = null;
-
         try {
             logger.info("Star to flushing memtable to " + sstableFilePath.toString());
             Memtable flushingMemtable = flushingMemtableARef.get();
-            ssTable = SSTable.flush(flushingMemtable, sstableFilePath.toString());
+            try (SSTableCreator ssTableCreator = new SSTableCreator(sstableFilePath.toFile(), flushingMemtable.size())) {
+                for (Pair<String, String> entry : flushingMemtable) {
+                    ssTableCreator.write(entry);
+                }
+            }
+            final NewSSTable ssTable = new NewSSTable(sstableFilePath.toFile());
+
             writeAheadLog = writeAheadLog.createNewLogFile();
 
-            InMemIndex memIndex = new InMemIndex(ssTable);
             runTimeoutCheckedCriticalSection(inMemIndexListUpdateLock,
-                    () -> segmentInMemIndexList.add(0, memIndex));
+                    () -> sstables.add(0, ssTable));
 
             if (!flushingMemtableARef.compareAndSet(flushingMemtable, null)) {
                 final String errorString = "The flushing table is changed during the flushing, critical error occur!";
@@ -277,7 +287,7 @@ public class LsmStorageEngine extends AbstractStorageEngine {
         logger.info("Finish flushing memtable to " + sstableFilePath.toString());
     }
 
-    private void compactAndMerge() throws InterruptedException {
+    private void compactAndMerge() throws Exception {
         if (!isMergeAndCompactNeed()) {
             logger.info("The merge-n-compact criteria is not reached, skip");
             return;
@@ -287,47 +297,48 @@ public class LsmStorageEngine extends AbstractStorageEngine {
         Path dbPath = createNewDBMergedFile();
         Path dbTempPath = Paths.get(dbPath.toString() + ".tmp");
 
-        ArrayList<InMemIndex> inMemIndexListSnapshot = null;
-        try (SSTable.SSTableWriter ssTableWriter = SSTable.openForWriteItem(dbPath.toString())) {
-            ArrayList<SSTable.SSTableSequenceReader> readers = new ArrayList<>();
+        ArrayList<SSTableSequenceReader> readers = new ArrayList<>();
 
-            while (!inMemIndexListReadLock.tryLock(ACQUIRE_LOCK_TIMEOUT, ACQUIRE_LOCK_TIMEOUT_UNIT))
-                logger.warn("failed to acquire read lock in 10sec");
+        ArrayList<NewSSTable> sstableListSnapshot = null;
 
-            try {
-                inMemIndexListSnapshot = new ArrayList<>(segmentInMemIndexList);
-                for (InMemIndex inMemIndex : segmentInMemIndexList) {
-                    readers.add(inMemIndex.getSSTable().getSequenceReader());
-                }
+        long totalItems = 0;
+        while (!inMemIndexListReadLock.tryLock(ACQUIRE_LOCK_TIMEOUT, ACQUIRE_LOCK_TIMEOUT_UNIT))
+            logger.warn("failed to acquire read lock in 10sec");
+
+        try {
+            sstableListSnapshot = new ArrayList<>(sstables);
+            for (NewSSTable sstable : sstables) {
+                readers.add(new SSTableSequenceReader(sstable.iterator()));
+                totalItems += sstable.getNumOfItems();
             }
-            finally {
-                inMemIndexListReadLock.unlock();
-            }
+        } finally {
+            inMemIndexListReadLock.unlock();
+        }
+        SSTableCreator creator = new SSTableCreator(dbTempPath.toFile(), (int)totalItems);
 
-            mergeSSTables(readers, ssTableWriter);
-        } catch (Exception e) {
-            logger.error(e.toString());
-            logger.error(e.getStackTrace().toString());
+        try {
+            mergeSSTables(readers, creator);
+        }
+        finally {
+            creator.close();
         }
 
         dbTempPath.toFile().renameTo(dbPath.toFile());
 
-        SSTable ssTable = new SSTable(dbPath.toString());
-        InMemIndex memIndex = new InMemIndex(ssTable);
+        NewSSTable ssTable = new NewSSTable(dbPath.toFile());
 
         while (!inMemIndexListUpdateLock.tryLock(10, TimeUnit.SECONDS))
             logger.warn("failed to acquire write lock in 10sec");
 
         try {
-            ArrayList<InMemIndex> oldIndexList = inMemIndexListSnapshot;
+            ArrayList<NewSSTable> oldIndexList = sstableListSnapshot;
             removeSSTables(oldIndexList);
 
-            for (InMemIndex inMemIndex : inMemIndexListSnapshot) {
-                segmentInMemIndexList.remove(inMemIndex);
+            for (NewSSTable inMemIndex : sstableListSnapshot) {
+                sstables.remove(inMemIndex);
             }
-            segmentInMemIndexList.add(memIndex);
-        }
-        finally {
+            sstables.add(ssTable);
+        } finally {
             inMemIndexListUpdateLock.unlock();
         }
 
@@ -335,8 +346,8 @@ public class LsmStorageEngine extends AbstractStorageEngine {
     }
 
     private Path createNewDBMergedFile() {
-        Stream<String> filenames = segmentInMemIndexList.stream().map(p->p.getSSTable().getFilename());
-        Stream<File> files = filenames.map(p-> new File(p));
+        Stream<String> filenames = sstables.stream().map(p -> p.getFile().getAbsolutePath());
+        Stream<File> files = filenames.map(p -> new File(p));
         String newMergedDBName = DBFilenameUtil.generateNewMergedDBName(files);
         return Paths.get(dbFileFolder, newMergedDBName);
     }
@@ -346,10 +357,9 @@ public class LsmStorageEngine extends AbstractStorageEngine {
             logger.warn("failed to acquire read lock in 10sec for merging/compacting criteria checking");
 
         try {
-            logger.debug("Current NewSSTable files: " + segmentInMemIndexList.size());
-            return segmentInMemIndexList.size() >= 3;
-        }
-        finally {
+            logger.debug("Current NewSSTable files: " + sstables.size());
+            return sstables.size() >= 3;
+        } finally {
             inMemIndexListReadLock.unlock();
         }
     }
@@ -360,15 +370,14 @@ public class LsmStorageEngine extends AbstractStorageEngine {
 
         try {
             criticalSection.run();
-        }
-        finally {
+        } finally {
             lock.unlock();
         }
     }
 
     private void processCommands() {
         logger.info("Start to listen to command queue and processing the command");
-        while(true) {
+        while (true) {
             try {
                 Command command = commandQueryQueue.take();
                 if (command instanceof GetCommand) {
@@ -384,8 +393,7 @@ public class LsmStorageEngine extends AbstractStorageEngine {
                 } else if (command instanceof GetEngineInfoCommand) {
                     processGetEngineInfoCommand((GetEngineInfoCommand) command);
                 }
-            }
-            catch (InterruptedException e) {
+            } catch (InterruptedException e) {
                 break;
             }
         }
@@ -401,18 +409,18 @@ public class LsmStorageEngine extends AbstractStorageEngine {
                 command.getResultHandler().handle(
                         new CommandResult(ResultStatus.OK, currentMemtable.get(key), null)
                 );
-            }
-            else if (flushingMemtable != null && flushingMemtable.containsKey(key)) {
+            } else if (flushingMemtable != null && flushingMemtable.containsKey(key)) {
                 command.getResultHandler().handle(
                         new CommandResult(ResultStatus.OK, flushingMemtable.get(key), null)
                 );
-            }
-            else {
-                for (InMemIndex indexCache : segmentInMemIndexList) {
-                    if (indexCache.contains(key)) {
+            } else {
+                for (NewSSTable sstable : sstables) {
+                    Pair<String, String> keyValuePair = sstable.get(key);
+                    if (keyValuePair != null) {
                         command.getResultHandler().handle(
-                                new CommandResult(ResultStatus.OK, indexCache.get(key), null)
+                                new CommandResult(keyValuePair != null ? ResultStatus.OK : ResultStatus.FAILED, keyValuePair.getValue(), null)
                         );
+                        return;
                     }
                 }
             }
@@ -507,18 +515,17 @@ public class LsmStorageEngine extends AbstractStorageEngine {
             sb.append("Engine class: " + getClass().getName() + "\n");
             sb.append("Database file folder: " + dbFileFolder + "\n");
             sb.append("In memory index tables: " + "\n");
-            for (InMemIndex inMemIndex : segmentInMemIndexList) {
-                sb.append("\t NewSSTable: " + inMemIndex.getSSTable().getFilename() + "\n");
+            for (NewSSTable sstable : sstables) {
+                sb.append("\t SSTable: " + sstable.getFile().getAbsolutePath() + "\n");
             }
-            if (segmentInMemIndexList.size() == 0) {
+            if (sstables.size() == 0) {
                 sb.append("\n");
             }
 
             command.getResultHandler().handle(
                     new CommandResult(ResultStatus.OK, sb.toString(), null)
             );
-        }
-        catch (Throwable e) {
+        } catch (Throwable e) {
             logger.error(e.toString());
             logger.error(e.getStackTrace().toString());
             command.getResultHandler().handle(
@@ -539,10 +546,13 @@ public class LsmStorageEngine extends AbstractStorageEngine {
                     compactAndMerge();
                     Thread.sleep(5 * 1000);
                 } catch (InterruptedException e) {
-                    logger.warn(marker, "The merge and compact thread is interrupted.");
+                    logger.info(marker, "The merge and compact thread is interrupted and is stopping.");
+                    return;
+                }
+                catch (Exception e) {
+                    logger.error(marker, "Compact and merge met exception: {}\n, Stacktrace: {}", e.toString(), e.getStackTrace().toString());
                 }
             }
-            // logger.info("Compact and merge background thread stopping...");
         }
 
     }

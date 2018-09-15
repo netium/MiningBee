@@ -12,7 +12,7 @@ import java.io.*;
 import java.nio.channels.Channels;
 import java.nio.charset.StandardCharsets;
 
-public final class SSTableCreator {
+public final class SSTableCreator implements AutoCloseable {
     private final Logger logger = LoggerFactory.getLogger(SSTableCreator.class);
 
     private SSTableCreatorState state;
@@ -56,7 +56,7 @@ public final class SSTableCreator {
         filter.put(key);
     }
 
-    public NewSSTable flush() throws IOException {
+    public void close() throws IOException {
         dataSectionHeader.writeByOffset(sstable);
 
         flushBloomFilter();
@@ -64,8 +64,6 @@ public final class SSTableCreator {
 
         sstable.close();
         state = SSTableCreatorState.CLOSED;
-
-        return new NewSSTable(file);
     }
 
     private void flushBloomFilter() throws IOException {
