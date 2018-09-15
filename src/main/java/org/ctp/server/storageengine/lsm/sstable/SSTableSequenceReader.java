@@ -1,6 +1,5 @@
 package org.ctp.server.storageengine.lsm.sstable;
 
-import org.ctp.server.storageengine.lsm.SSTable;
 import org.ctp.util.Pair;
 
 import java.io.EOFException;

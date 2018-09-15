@@ -13,8 +13,8 @@ import java.nio.channels.Channels;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
-public class NewSSTable implements AutoCloseable, Iterable<Pair<String, String>> {
-    private final Logger LOGGER = LoggerFactory.getLogger(NewSSTable.class);
+public class SSTable implements AutoCloseable, Iterable<Pair<String, String>> {
+    private final Logger LOGGER = LoggerFactory.getLogger(SSTable.class);
 
     private final File file;
     private final RandomAccessFile sstableAccessFile;
@@ -31,18 +31,18 @@ public class NewSSTable implements AutoCloseable, Iterable<Pair<String, String>>
         return nItems;
     }
 
-    public NewSSTable(File file) throws IOException {
+    public SSTable(File file) throws IOException {
         if (file == null)
             throw new IllegalArgumentException("The file is null");
 
-        LOGGER.info("Loading NewSSTable: {}", file.getAbsolutePath());
+        LOGGER.info("Loading SSTable: {}", file.getAbsolutePath());
 
         this.file = file;
 
         sstableAccessFile = new RandomAccessFile(this.file, "r");
 
         if (!SSTableDescriptor.isValidDescriptor(sstableAccessFile))
-            throw new BadSSTableException("The file " + file.getCanonicalPath() + " is not a valid NewSSTable");
+            throw new BadSSTableException("The file " + file.getCanonicalPath() + " is not a valid SSTable");
 
         while(sstableAccessFile.getFilePointer() < sstableAccessFile.length()) {
             SSTableSectionHeader sectionHeader = SSTableSectionHeader.loadSectionHeader(sstableAccessFile);

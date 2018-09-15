@@ -20,7 +20,7 @@ public class SSTableDataIterator implements Iterator<Pair<String, String>>, Auto
         sstable = new RandomAccessFile(file, "r");
 
         if (!SSTableDescriptor.isValidDescriptor(sstable)) {
-            throw new BadSSTableException("The file: " + file.getAbsolutePath() + " is not a valid NewSSTable file");
+            throw new BadSSTableException("The file: " + file.getAbsolutePath() + " is not a valid SSTable file");
         }
 
         moveToDataRegion(sstable);

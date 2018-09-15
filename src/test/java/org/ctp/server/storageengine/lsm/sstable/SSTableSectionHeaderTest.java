@@ -3,7 +3,7 @@ package org.ctp.server.storageengine.lsm.sstable;
 import org.junit.Test;
 import org.testng.Assert;
 
-public class NewSSTableSectionHeaderTest {
+public class SSTableSectionHeaderTest {
 
     @Test
     public void testSectionHeaderData() {
