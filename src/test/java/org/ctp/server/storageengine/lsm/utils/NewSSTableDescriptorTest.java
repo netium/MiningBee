@@ -8,7 +8,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 
-public class SSTableDescriptorTest {
+public class NewSSTableDescriptorTest {
 
     @Test
     public void testWriteSSTableDescriptor() throws IOException {

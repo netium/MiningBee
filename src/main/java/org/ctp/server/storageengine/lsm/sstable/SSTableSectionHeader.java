@@ -17,7 +17,7 @@ public final class SSTableSectionHeader {
     public SSTableSectionHeader(byte[] sectionName, long sectionOffset, long sectionSize) {
         if (sectionName == null)
             throw new IllegalArgumentException("The sectionName is null");
-        if (sectionName.length == SECTION_NAME_SIZE)
+        if (sectionName.length != SECTION_NAME_SIZE)
             throw new IllegalArgumentException("The sectionName length is wrong");
         if (sectionSize < 0)
             throw new IllegalArgumentException("The sectionSize is < 0");

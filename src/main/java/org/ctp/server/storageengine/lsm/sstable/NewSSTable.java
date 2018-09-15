@@ -1,5 +1,6 @@
 package org.ctp.server.storageengine.lsm.sstable;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.hash.BloomFilter;
 import com.google.common.hash.Funnels;
 import org.ctp.server.storageengine.lsm.utils.KeyValuePairCoder;
@@ -10,33 +11,38 @@ import org.slf4j.LoggerFactory;
 import java.io.*;
 import java.nio.channels.Channels;
 import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
-import java.util.SortedMap;
+import java.util.*;
 
-public class SSTable {
-    private final Logger LOGGER = LoggerFactory.getLogger(SSTable.class);
+public class NewSSTable implements AutoCloseable, Iterable<Pair<String, String>> {
+    private final Logger LOGGER = LoggerFactory.getLogger(NewSSTable.class);
 
     private final File file;
     private final RandomAccessFile sstableAccessFile;
 
     private BloomFilter<String> filter;
 
-    private SortedMap<String, Long> index;
+    private SortedMap<String, Long> index = new TreeMap<String, Long>();
 
     private HashMap<String, SSTableSectionHeader> sections = new HashMap<>();
 
-    public SSTable(File file) throws IOException {
+    private long nItems = -1;
+
+    public long getNumOfItems() {
+        return nItems;
+    }
+
+    public NewSSTable(File file) throws IOException {
         if (file == null)
             throw new IllegalArgumentException("The file is null");
 
-        LOGGER.info("Loading SSTable: {}", file.getAbsolutePath());
+        LOGGER.info("Loading NewSSTable: {}", file.getAbsolutePath());
 
         this.file = file;
 
         sstableAccessFile = new RandomAccessFile(this.file, "r");
 
         if (!SSTableDescriptor.isValidDescriptor(sstableAccessFile))
-            throw new BadSSTableException("The file " + file.getCanonicalPath() + " is not a valid SSTable");
+            throw new BadSSTableException("The file " + file.getCanonicalPath() + " is not a valid NewSSTable");
 
         while(sstableAccessFile.getFilePointer() < sstableAccessFile.length()) {
             SSTableSectionHeader sectionHeader = SSTableSectionHeader.loadSectionHeader(sstableAccessFile);
@@ -70,14 +76,17 @@ public class SSTable {
 
     private void loadContent(RandomAccessFile sstableAccessFile, SSTableSectionHeader sectionHeader) throws IOException {
         switch (sectionHeader.getNameString()) {
-            case "DAT":
+            case SSTableConstants.DATA_SECTION_NAME_STRING:
                 loadData(sstableAccessFile, sectionHeader);
                 break;
-            case "IDX":
+            case SSTableConstants.INDEX_SECTION_NAME_STRING:
                 loadIndex(sstableAccessFile, sectionHeader);
                 break;
-            case "BMF":
+            case SSTableConstants.BLOOMFILTER_SECTION_NAME_STRING:
                 loadBloomFilter(sstableAccessFile, sectionHeader);
+                break;
+            case SSTableConstants.SUMMARY_SECTION_NAME_STRING:
+                loadSummary(sstableAccessFile, sectionHeader);
                 break;
             default:
                 LOGGER.warn("Unknown section: {}, bypass it", sectionHeader.getNameString());
@@ -93,12 +102,17 @@ public class SSTable {
     private void loadBloomFilter(RandomAccessFile sstableAccessFile, SSTableSectionHeader sectionHeader) throws IOException {
         InputStream inputStream = Channels.newInputStream(sstableAccessFile.getChannel());
         filter = BloomFilter.readFrom(inputStream, Funnels.stringFunnel(StandardCharsets.UTF_8));
-        DataOutput dataOutput;
     }
 
     private void loadIndex(RandomAccessFile sstableAccessFile, SSTableSectionHeader sectionHeader) throws IOException {
         if (sectionHeader.getSize() != 0)
             throw new BadSSTableException("The index table is not supported yet");
+    }
+
+    private void loadSummary(RandomAccessFile sstableAccessFile, SSTableSectionHeader sectionHeader) throws IOException {
+        ObjectMapper objectMapper = new ObjectMapper();
+        SSTableSummaryInfo summary = (SSTableSummaryInfo)objectMapper.readValue(sstableAccessFile, SSTableSummaryInfo.class);
+        nItems = summary.getDataItems();
     }
 
     private void loadData(RandomAccessFile sstableAccessFile, SSTableSectionHeader sectionHeader) throws IOException {
@@ -115,5 +129,19 @@ public class SSTable {
         assert sstableAccessFile.getFilePointer() == sectionEndPos;
         if (sstableAccessFile.getFilePointer() != sectionEndPos)
             throw new BadSSTableException("The position is misaligned after reading the sstable data");
+    }
+
+    @Override
+    public void close() throws Exception {
+        sstableAccessFile.close();
+    }
+
+    @Override
+    public Iterator<Pair<String, String>> iterator() {
+        try {
+            return new SSTableDataIterator(file);
+        } catch (IOException e) {
+            return null;
+        }
     }
 }

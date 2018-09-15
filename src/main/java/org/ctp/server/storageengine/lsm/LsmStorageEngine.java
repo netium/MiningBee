@@ -346,7 +346,7 @@ public class LsmStorageEngine extends AbstractStorageEngine {
             logger.warn("failed to acquire read lock in 10sec for merging/compacting criteria checking");
 
         try {
-            logger.debug("Current SSTable files: " + segmentInMemIndexList.size());
+            logger.debug("Current NewSSTable files: " + segmentInMemIndexList.size());
             return segmentInMemIndexList.size() >= 3;
         }
         finally {
@@ -508,7 +508,7 @@ public class LsmStorageEngine extends AbstractStorageEngine {
             sb.append("Database file folder: " + dbFileFolder + "\n");
             sb.append("In memory index tables: " + "\n");
             for (InMemIndex inMemIndex : segmentInMemIndexList) {
-                sb.append("\t SSTable: " + inMemIndex.getSSTable().getFilename() + "\n");
+                sb.append("\t NewSSTable: " + inMemIndex.getSSTable().getFilename() + "\n");
             }
             if (segmentInMemIndexList.size() == 0) {
                 sb.append("\n");

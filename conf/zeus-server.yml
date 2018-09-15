@@ -1,6 +1,6 @@
 # Zeus server configuration
 ---
-mode: cluster
+mode: single
 dbPath: ./db
 cluster:
   conf: ./conf/zeus-cluster.xml
