@@ -16,8 +16,8 @@ public class Memtable implements Iterable<Pair<String, String>>  {
     public void put(String key, String value) {
         if (key == null || key.length() == 0)
             throw new IllegalArgumentException();
-        if (value == null && value.length() == 0)
-            throw new IllegalArgumentException();
+        if (value == null)
+            throw new IllegalArgumentException("The value is null");
 
         map.put(key, value);
         rawSize += (key.getBytes().length + value.getBytes().length);
