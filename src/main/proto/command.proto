@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+message CommandRequest {
+    enum CommandType {
+        GET = 0;
+        PUT = 1;
+        DELETE = 2;
+        CAS = 3;
+        FLUSH = 4;
+        ENGINEINFO = 5;
+    }
+
+    CommandType type = 1;
+    int64 commandID = 2;
+    string key = 3;
+    string newValue = 4;
+    string oldValue = 5;
+}
+
+message CommandResult {
+    enum ResultStatus {
+        OK = 0;
+        FAILED = 1;
+        ERROR = 2;
+        NO_SUPPORTED = 3;
+        OVERLOAD = 4;
+    }
+    ResultStatus status = 1;
+    string errorCause = 2;
+    string returnValue = 3;
+}
