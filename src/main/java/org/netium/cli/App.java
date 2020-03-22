@@ -81,7 +81,7 @@ public class App
     }
 
     private void showBanner() {
-        System.out.println("Welcome to Zeus, a mini distributed key value storage");
+        System.out.println("Welcome to MiningBee, a mini distributed key value storage");
         showEngineDiagnosisInfo();
     }
 
