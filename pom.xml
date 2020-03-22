@@ -4,19 +4,20 @@
   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
-  <groupId>org.ctp</groupId>
-  <artifactId>DistributedKeyValueStore</artifactId>
+  <groupId>org.netium</groupId>
+  <artifactId>mining</artifactId>
   <version>0.2.0-SNAPSHOT</version>
 
   <name>DistributedKeyValueStore</name>
   <!-- FIXME change it to the project's website -->
-  <url>http://www.example.com</url>
+  <url>https://netium.gitlab.io</url>
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <maven.compiler.source>1.8</maven.compiler.source>
-    <maven.compiler.target>1.8</maven.compiler.target>
-    <java.version>1.8</java.version>
+    <maven.compiler.source>11</maven.compiler.source>
+    <maven.compiler.target>11</maven.compiler.target>
+    <java.version>11</java.version>
+    <docker.image.prefix>minningbee</docker.image.prefix>
   </properties>
 
   <dependencies>
@@ -34,18 +35,18 @@
     <dependency>
       <groupId>org.antlr</groupId>
       <artifactId>antlr4-runtime</artifactId>
-      <version>4.7.1</version>
+      <version>4.8-1</version>
     </dependency>
     <dependency>
       <groupId>io.netty</groupId>
       <artifactId>netty-all</artifactId>
-      <version>4.1.28.Final</version>
+      <version>4.1.48.Final</version>
       <scope>compile</scope>
     </dependency>
     <dependency>
       <groupId>org.jgroups</groupId>
       <artifactId>jgroups-raft</artifactId>
-      <version>0.4.Final</version>
+      <version>0.5.1.Final</version>
     </dependency>
 
     <!-- https://mvnrepository.com/artifact/commons-cli/commons-cli -->
@@ -58,32 +59,49 @@
     <dependency>
       <groupId>com.fasterxml.jackson.dataformat</groupId>
       <artifactId>jackson-dataformat-yaml</artifactId>
-      <version>2.9.6</version>
+      <version>2.10.3</version>
     </dependency>
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-databind</artifactId>
-        <version>2.9.6</version>
+        <version>2.10.3</version>
     </dependency>
 
     <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-lang3 -->
     <dependency>
       <groupId>org.apache.commons</groupId>
       <artifactId>commons-lang3</artifactId>
-      <version>3.8</version>
+      <version>3.9</version>
     </dependency>
 
     <!-- Using the bloomfilter in the Guava lib -->
     <dependency>
       <groupId>com.google.guava</groupId>
       <artifactId>guava</artifactId>
-      <version>26.0-jre</version>
+      <version>28.2-jre</version>
     </dependency>
   </dependencies>
 
   <build>
+    <finalName>miningbee-docker-1.0</finalName>
     <pluginManagement><!-- lock down plugins versions to avoid using Maven defaults (may be moved to parent pom) -->
       <plugins>
+        <plugin>
+          <groupId>com.spotify</groupId>
+          <artifactId>docker-maven-plugin</artifactId>
+          <version>1.2.2</version>
+          <configuration>
+            <imageName>${docker.image.prefix}/${project.artifactId}</imageName>
+            <dockerDictory>src/main/docker</dockerDictory>
+            <resources>
+              <resource>
+                <targetPath>/</targetPath>
+                <directory>${project.build.directory}</directory>
+                <include>${project.build.finalName}.jar</include>
+              </resource>
+            </resources>
+          </configuration>
+        </plugin>
         <plugin>
           <artifactId>maven-clean-plugin</artifactId>
           <version>3.0.0</version>
@@ -97,10 +115,12 @@
           <artifactId>maven-compiler-plugin</artifactId>
           <version>3.7.0</version>
         </plugin>
+<!--
         <plugin>
           <artifactId>maven-surefire-plugin</artifactId>
           <version>2.20.1</version>
         </plugin>
+        -->
         <plugin>
           <artifactId>maven-jar-plugin</artifactId>
           <version>3.0.2</version>
@@ -120,7 +140,7 @@
           <plugin>
               <groupId>org.antlr</groupId>
               <artifactId>antlr4-maven-plugin</artifactId>
-              <version>4.7.1</version>
+              <version>4.8-1</version>
               <executions>
                   <execution>
                       <id>antlr</id>
@@ -144,7 +164,7 @@
             <!-- MainClass in mainfest make a executable jar -->
             <archive>
               <manifest>
-                <mainClass>org.ctp.cli.App</mainClass>
+                <mainClass>org.netium.cli.App</mainClass>
               </manifest>
             </archive>
 
@@ -163,10 +183,12 @@
       </plugins>
   </build>
 
+  <!--
   <repositories>
     <repository>
       <id>central</id>
       <url>http://repo1.maven.org/maven2/</url>
     </repository>
   </repositories>
+  -->
 </project>
