@@ -5,7 +5,7 @@
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>org.netium</groupId>
-  <artifactId>mining</artifactId>
+  <artifactId>miningbee</artifactId>
   <version>0.2.0-SNAPSHOT</version>
 
   <name>DistributedKeyValueStore</name>
@@ -83,26 +83,33 @@
   </dependencies>
 
   <build>
-    <finalName>miningbee-docker-1.0</finalName>
+	<finalName>miningbee-docker-1.0</finalName>
     <pluginManagement><!-- lock down plugins versions to avoid using Maven defaults (may be moved to parent pom) -->
       <plugins>
-        <plugin>
-          <groupId>com.spotify</groupId>
-          <artifactId>docker-maven-plugin</artifactId>
-          <version>1.2.2</version>
-          <configuration>
-            <imageName>${docker.image.prefix}/${project.artifactId}</imageName>
-            <dockerDirectory>src/main/docker</dockerDirectory>
-            <resources>
-              <resource>
-                <targetPath>/</targetPath>
-                <directory>${project.build.directory}</directory>
-                <include>${project.build.finalName}-jar-with-dependencies.jar</include>
-              </resource>
-            </resources>
-          </configuration>
-        </plugin>
-        <plugin>
+	<plugin>
+		<groupId>com.spotify</groupId>
+		<artifactId>dockerfile-maven-plugin</artifactId>
+		<version>1.4.13</version>
+		<executions>
+			<execution>
+			<id>default</id>
+			<goals>
+				<goal>build</goal>
+				<goal>push</goal>
+			</goals>
+			</execution>
+		</executions>
+		<configuration>
+			<dockerfile>docker/Dockerfile</dockerfile>
+			<!--<contextDirectory>src/main/docker</contextDirectory>-->
+			<repository> netium/miningbee </repository>
+			<tag>${project.version}</tag>
+			<buildArgs>
+				<JAR_FILE>target/${project.build.finalName}-jar-with-dependencies.jar</JAR_FILE>
+			</buildArgs>
+		</configuration>
+	</plugin>
+       <plugin>
           <artifactId>maven-clean-plugin</artifactId>
           <version>3.0.0</version>
         </plugin>
