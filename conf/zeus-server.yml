@@ -2,11 +2,12 @@
 ---
 mode: single
 dbPath: ./db
-cluster:
+cluster :
   conf: ./conf/zeus-cluster.xml
   serverId: A
   clusterName: zeus-cluster
   port: 18889
 single:
   port: 18889
+
 
